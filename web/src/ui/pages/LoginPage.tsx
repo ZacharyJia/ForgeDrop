@@ -26,10 +26,10 @@ export function LoginPage() {
     <div className="login-page">
       <div className="login-card">
         <h1>forge-drop</h1>
-        <p className="subtitle">Self-hosted deployment platform</p>
+        <p className="subtitle">自托管部署平台</p>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Username</label>
+            <label>用户名</label>
             <input
               type="text"
               value={username}
@@ -39,7 +39,7 @@ export function LoginPage() {
             />
           </div>
           <div className="form-group">
-            <label>Password</label>
+            <label>密码</label>
             <input
               type="password"
               value={password}
@@ -51,7 +51,7 @@ export function LoginPage() {
             <div className="error">{String(loginMutation.error)}</div>
           )}
           <button type="submit" disabled={loginMutation.isPending}>
-            {loginMutation.isPending ? "Logging in..." : "Login"}
+            {loginMutation.isPending ? "登录中..." : "登录"}
           </button>
         </form>
       </div>

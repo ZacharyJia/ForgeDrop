@@ -45,25 +45,25 @@ export function ReposPage() {
   };
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>;
+    return <div className="loading">加载中...</div>;
   }
 
   return (
     <div className="repos-page">
       <div className="page-header">
-        <h1>Repositories</h1>
+        <h1>仓库</h1>
         <button onClick={() => setShowCreate(true)} className="btn-primary">
-          + Add Repository
+          + 添加仓库
         </button>
       </div>
 
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Add Repository</h2>
+            <h2>添加仓库</h2>
             <form onSubmit={handleCreate}>
               <div className="form-group">
-                <label>Repository Full Name</label>
+                <label>仓库全名</label>
                 <input
                   type="text"
                   value={fullName}
@@ -71,24 +71,24 @@ export function ReposPage() {
                   placeholder="owner/repo"
                   required
                 />
-                <p className="help-text">Format: owner/repository-name</p>
+                <p className="help-text">格式：owner/repo</p>
               </div>
               <div className="form-group">
-                <label>Webhook Secret</label>
+                <label>Webhook 密钥</label>
                 <div className="input-with-button">
                   <input
                     type="text"
                     value={webhookSecret}
                     onChange={(e) => setWebhookSecret(e.target.value)}
-                    placeholder="Generate or enter a secret"
+                    placeholder="生成或手动输入"
                     required
                   />
                   <button type="button" onClick={generateSecret} className="btn-secondary">
-                    Generate
+                    生成
                   </button>
                 </div>
                 <p className="help-text">
-                  Use this secret when configuring the webhook in Forgejo
+                  在 Forgejo 配置 Webhook 时使用此密钥
                 </p>
               </div>
               {createMutation.error && (
@@ -96,10 +96,10 @@ export function ReposPage() {
               )}
               <div className="modal-actions">
                 <button type="button" onClick={() => setShowCreate(false)}>
-                  Cancel
+                  取消
                 </button>
                 <button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending ? "Adding..." : "Add Repository"}
+                  {createMutation.isPending ? "添加中..." : "添加"}
                 </button>
               </div>
             </form>
@@ -115,24 +115,24 @@ export function ReposPage() {
               <button
                 className="btn-danger-small"
                 onClick={() => {
-                  if (confirm(`Delete repository "${repo.full_name}"?`)) {
+                  if (confirm(`确认删除仓库「${repo.full_name}」？`)) {
                     deleteMutation.mutate(repo.id);
                   }
                 }}
               >
-                Delete
+                删除
               </button>
             </div>
             <div className="repo-body">
               <div className="info-item">
-                <strong>Slug:</strong> {repo.slug}
+                <strong>Slug：</strong> {repo.slug}
               </div>
               <div className="info-item">
-                <strong>Webhook Secret:</strong> 
+                <strong>Webhook 密钥：</strong>
                 <code className="secret">{repo.webhook_secret}</code>
               </div>
               <div className="repo-meta">
-                Added: {new Date(repo.created_at).toLocaleDateString()}
+                添加时间：{new Date(repo.created_at).toLocaleDateString()}
               </div>
             </div>
           </div>
@@ -141,8 +141,8 @@ export function ReposPage() {
 
       {repos?.length === 0 && (
         <div className="empty-state">
-          <p>No repositories configured yet.</p>
-          <p className="muted">Add repositories to enable webhook-based deployments.</p>
+          <p>暂无仓库配置。</p>
+          <p className="muted">添加仓库后可启用基于 Webhook 的自动部署。</p>
         </div>
       )}
     </div>

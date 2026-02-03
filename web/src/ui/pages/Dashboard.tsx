@@ -20,47 +20,47 @@ export function Dashboard() {
   });
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>;
+    return <div className="loading">加载中...</div>;
   }
 
   return (
     <div className="dashboard">
-      <h1>Dashboard</h1>
+      <h1>概览</h1>
       
       <div className="stats-grid">
         <div className="stat-card">
-          <h3>Applications</h3>
+          <h3>应用</h3>
           <div className="stat-value">{apps?.length || 0}</div>
-          <Link to="/apps" className="stat-link">Manage →</Link>
+          <Link to="/apps" className="stat-link">管理 →</Link>
         </div>
         
         <div className="stat-card">
-          <h3>Repositories</h3>
+          <h3>仓库</h3>
           <div className="stat-value">{repos?.length || 0}</div>
-          <Link to="/repos" className="stat-link">Manage →</Link>
+          <Link to="/repos" className="stat-link">管理 →</Link>
         </div>
         
         <div className="stat-card">
-          <h3>API Tokens</h3>
+          <h3>API 令牌</h3>
           <div className="stat-value">{tokens?.length || 0}</div>
-          <Link to="/tokens" className="stat-link">Manage →</Link>
+          <Link to="/tokens" className="stat-link">管理 →</Link>
         </div>
       </div>
 
       <div className="quick-start">
-        <h2>Quick Start</h2>
+        <h2>快速开始</h2>
         <ol>
-          <li>Configure <Link to="/settings">global settings</Link> (domain, network)</li>
-          <li>Add a <Link to="/repos">repository</Link> and configure webhook</li>
-          <li>Create an <Link to="/apps">application</Link> and configure services</li>
-          <li>Generate an <Link to="/tokens">API token</Link> for CI uploads</li>
-          <li>Upload artifacts from your CI pipeline</li>
+          <li>配置 <Link to="/settings">全局设置</Link>（域名、网络等）</li>
+          <li>添加 <Link to="/repos">仓库</Link> 并配置 Webhook</li>
+          <li>创建 <Link to="/apps">应用</Link> 并配置服务</li>
+          <li>生成 <Link to="/tokens">API 令牌</Link> 供 CI 上传制品</li>
+          <li>从 CI 流水线上传制品（artifact）</li>
         </ol>
       </div>
 
       {apps && apps.length > 0 && (
         <div className="recent-apps">
-          <h2>Recent Applications</h2>
+          <h2>最近的应用</h2>
           <div className="app-list">
             {apps.slice(0, 5).map((app) => (
               <Link key={app.id} to={`/apps/${app.id}`} className="app-item">

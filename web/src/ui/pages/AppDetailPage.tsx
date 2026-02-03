@@ -21,11 +21,11 @@ export function AppDetailPage() {
   });
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>;
+    return <div className="loading">加载中...</div>;
   }
 
   if (!data) {
-    return <div className="error">Application not found</div>;
+    return <div className="error">未找到应用</div>;
   }
 
   const app = data.app;
@@ -39,25 +39,23 @@ export function AppDetailPage() {
           <div className="app-key-badge">{app.app_key}</div>
         </div>
         <Link to="/apps" className="btn-secondary">
-          ← Back to Apps
+          ← 返回应用列表
         </Link>
       </div>
 
       <div className="section">
         <div className="section-header">
-          <h2>Services</h2>
+          <h2>服务</h2>
           <p className="section-desc">
-            Configure services (containers) for this application. Each service can use either
-            Docker Compose templates or manual Docker API configuration.
+            配置该应用的服务（容器）。每个服务可选择 Docker Compose 模板或 Docker API（手动）模式。
           </p>
         </div>
 
         {services.length === 0 ? (
           <div className="empty-state">
-            <p>No services configured yet.</p>
+            <p>暂无服务配置。</p>
             <p className="muted">
-              Services are created automatically when you upload artifacts via the API.
-              Or you can create them manually via the API.
+              当你通过 API 上传制品（artifact）时，会自动创建相关服务；也可以通过 API 手动创建。
             </p>
           </div>
         ) : (
@@ -77,9 +75,9 @@ export function AppDetailPage() {
                       <span className="badge badge-docker">Docker API</span>
                     )}
                     {service.enabled ? (
-                      <span className="badge badge-enabled">Enabled</span>
+                      <span className="badge badge-enabled">已启用</span>
                     ) : (
-                      <span className="badge badge-disabled">Disabled</span>
+                      <span className="badge badge-disabled">已禁用</span>
                     )}
                   </div>
                 </div>
@@ -88,50 +86,50 @@ export function AppDetailPage() {
                   {service.use_compose ? (
                     <div className="service-info">
                       <div className="info-item">
-                        <strong>Mode:</strong> Docker Compose
+                        <strong>模式：</strong> Docker Compose
                       </div>
                       <div className="info-item">
-                        <strong>Template:</strong> {service.compose_template ? "Configured" : "Not set"}
+                        <strong>模板：</strong> {service.compose_template ? "已配置" : "未设置"}
                       </div>
                     </div>
                   ) : (
                     <div className="service-info">
                       <div className="info-item">
-                        <strong>Image:</strong> {service.image}
+                        <strong>镜像：</strong> {service.image}
                       </div>
                       <div className="info-item">
-                        <strong>Port:</strong> {service.container_port}
+                        <strong>端口：</strong> {service.container_port}
                       </div>
                       <div className="info-item">
-                        <strong>Command:</strong> <code>{service.command}</code>
+                        <strong>启动命令：</strong> <code>{service.command}</code>
                       </div>
                     </div>
                   )}
 
                   {service.prod_host && (
                     <div className="info-item">
-                      <strong>Production Host:</strong> {service.prod_host}
+                      <strong>生产域名：</strong> {service.prod_host}
                     </div>
                   )}
 
                   <div className="service-meta">
-                    Revision: {service.revision} | Updated: {new Date(service.updated_at).toLocaleString()}
+                    版本：{service.revision} | 更新时间：{new Date(service.updated_at).toLocaleString()}
                   </div>
                 </div>
 
                 <div className="service-actions">
                   <Link to={`/services/${service.id}/edit`} className="btn-secondary">
-                    Edit Configuration
+                    编辑配置
                   </Link>
                   <button
                     className="btn-danger-small"
                     onClick={() => {
-                      if (confirm(`Delete service "${service.name}"?`)) {
+                      if (confirm(`确认删除服务「${service.name}」？`)) {
                         deleteMutation.mutate(service.id);
                       }
                     }}
                   >
-                    Delete
+                    删除
                   </button>
                 </div>
               </div>
@@ -141,16 +139,16 @@ export function AppDetailPage() {
       </div>
 
       <div className="section">
-        <h2>Deployment Info</h2>
+        <h2>部署说明</h2>
         <div className="info-box">
-          <p>To deploy this application:</p>
+          <p>要部署该应用：</p>
           <ol>
-            <li>Configure services above</li>
-            <li>Create an API token in the <Link to="/tokens">Tokens</Link> page</li>
-            <li>Upload artifacts from your CI pipeline using the API</li>
+            <li>先配置上面的服务</li>
+            <li>在 <Link to="/tokens">API 令牌</Link> 页面创建令牌</li>
+            <li>在 CI 流水线中通过 API 上传制品（artifact）</li>
           </ol>
           <p className="muted">
-            See the <a href="https://github.com/your-repo/forge-drop" target="_blank">documentation</a> for CI integration examples.
+            CI 集成示例请参考文档。
           </p>
         </div>
       </div>

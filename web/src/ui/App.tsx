@@ -39,7 +39,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   });
 
   if (meQuery.isPending) {
-    return <div className="loading">Loading...</div>;
+    return <div className="loading">加载中...</div>;
   }
 
   if (meQuery.isError || !meQuery.data) {
@@ -56,14 +56,14 @@ function Layout({ children }: { children: React.ReactNode }) {
           <div className="user-info">@{user.username}</div>
         </div>
         <ul className="nav-menu">
-          <li><Link to="/">Dashboard</Link></li>
-          <li><Link to="/apps">Applications</Link></li>
-          <li><Link to="/repos">Repositories</Link></li>
-          <li><Link to="/tokens">API Tokens</Link></li>
-          <li><Link to="/settings">Settings</Link></li>
+          <li><Link to="/">概览</Link></li>
+          <li><Link to="/apps">应用</Link></li>
+          <li><Link to="/repos">仓库</Link></li>
+          <li><Link to="/tokens">API 令牌</Link></li>
+          <li><Link to="/settings">设置</Link></li>
         </ul>
         <button className="logout-btn" onClick={() => logoutMutation.mutate()}>
-          Logout
+          退出登录
         </button>
       </nav>
       <main className="content">

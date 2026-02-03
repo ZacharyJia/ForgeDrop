@@ -15,8 +15,9 @@ export function ServiceEditPage() {
   });
 
   const { data: templateExample } = useQuery({
-    queryKey: ["compose-template-example"],
-    queryFn: api.getComposeTemplateExample,
+    queryKey: ["compose-template-example", serviceId],
+    queryFn: () => api.getComposeTemplateExample(serviceId!),
+    enabled: !!serviceId,
   });
 
   const [formData, setFormData] = useState<Partial<Service>>({});
@@ -42,11 +43,11 @@ export function ServiceEditPage() {
   };
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>;
+    return <div className="loading">加载中...</div>;
   }
 
   if (!data) {
-    return <div className="error">Service not found</div>;
+    return <div className="error">未找到服务</div>;
   }
 
   const { service } = data;
@@ -54,18 +55,18 @@ export function ServiceEditPage() {
   return (
     <div className="service-edit-page">
       <div className="page-header">
-        <h1>Edit Service: {service.name}</h1>
+        <h1>编辑服务：{service.name}</h1>
         <button onClick={() => navigate(-1)} className="btn-secondary">
-          ← Back
+          ← 返回
         </button>
       </div>
 
       <form onSubmit={handleSubmit} className="service-form">
         <div className="form-section">
-          <h2>Basic Information</h2>
+          <h2>基本信息</h2>
           
           <div className="form-group">
-            <label>Service Name</label>
+            <label>服务名称</label>
             <input
               type="text"
               value={formData.name || ""}
@@ -81,13 +82,13 @@ export function ServiceEditPage() {
                 checked={formData.enabled ?? true}
                 onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
               />
-              {" "}Enabled
+              {" "}启用
             </label>
           </div>
         </div>
 
         <div className="form-section">
-          <h2>Deployment Mode</h2>
+          <h2>部署模式</h2>
           
           <div className="form-group">
             <label className="radio-label">
@@ -96,10 +97,10 @@ export function ServiceEditPage() {
                 checked={!formData.use_compose}
                 onChange={() => setFormData({ ...formData, use_compose: false })}
               />
-              {" "}Docker API (Manual Configuration)
+              {" "}Docker API（手动配置）
             </label>
             <p className="help-text">
-              Configure container settings manually. Suitable for simple single-container services.
+              手动配置容器参数，适合简单的单容器服务。
             </p>
           </div>
 
@@ -110,21 +111,20 @@ export function ServiceEditPage() {
                 checked={formData.use_compose ?? false}
                 onChange={() => setFormData({ ...formData, use_compose: true })}
               />
-              {" "}Docker Compose (Template-based)
+              {" "}Docker Compose（模板）
             </label>
             <p className="help-text">
-              Use Docker Compose templates for full control. Supports multi-container services,
-              resource limits, health checks, and all Compose features.
+              使用 Docker Compose 模板获得完全控制能力：支持多容器、资源限制、健康检查等 Compose 特性。
             </p>
           </div>
         </div>
 
         {!formData.use_compose ? (
           <div className="form-section">
-            <h2>Docker API Configuration</h2>
+            <h2>Docker API 配置</h2>
             
             <div className="form-group">
-              <label>Docker Image</label>
+              <label>镜像</label>
               <input
                 type="text"
                 value={formData.image || ""}
@@ -134,7 +134,7 @@ export function ServiceEditPage() {
             </div>
 
             <div className="form-group">
-              <label>Command</label>
+              <label>启动命令</label>
               <input
                 type="text"
                 value={formData.command || ""}
@@ -144,7 +144,7 @@ export function ServiceEditPage() {
             </div>
 
             <div className="form-group">
-              <label>Container Port</label>
+              <label>容器端口</label>
               <input
                 type="number"
                 value={formData.container_port || 8080}
@@ -153,7 +153,7 @@ export function ServiceEditPage() {
             </div>
 
             <div className="form-group">
-              <label>Run User (UID:GID)</label>
+              <label>运行用户（UID:GID）</label>
               <input
                 type="text"
                 value={formData.run_user || ""}
@@ -164,17 +164,17 @@ export function ServiceEditPage() {
           </div>
         ) : (
           <div className="form-section">
-            <h2>Docker Compose Template</h2>
+            <h2>Docker Compose 模板</h2>
             
             <div className="form-group">
               <div className="label-with-action">
-                <label>Compose Template (Go template syntax)</label>
+                <label>Compose 模板（Go template 语法）</label>
                 <button
                   type="button"
                   className="btn-link"
                   onClick={() => setShowExample(!showExample)}
                 >
-                  {showExample ? "Hide" : "Show"} Example
+                  {showExample ? "隐藏" : "查看"} 示例
                 </button>
               </div>
               
@@ -192,39 +192,35 @@ export function ServiceEditPage() {
                 className="code-textarea"
               />
               <p className="help-text">
-                Use Go template syntax with variables like {`{{.Artifacts}}`}, {`{{.Host}}`}, {`{{.EnvName}}`}, etc.
-                See example above for all available variables.
+                使用 Go template 语法，可使用变量如 {`{{.Artifacts}}`}、{`{{.Host}}`}、{`{{.EnvName}}`} 等。
+                变量列表可查看上方示例。
               </p>
             </div>
           </div>
         )}
 
         <div className="form-section">
-          <h2>Routing Configuration</h2>
+          <h2>路由配置</h2>
           
           <div className="form-group">
-            <label>Production Host (optional)</label>
+            <label>生产域名（可选）</label>
             <input
               type="text"
               value={formData.prod_host || ""}
               onChange={(e) => setFormData({ ...formData, prod_host: e.target.value })}
               placeholder="app.example.com"
             />
-            <p className="help-text">
-              Custom domain for production environment. Leave empty to use default.
-            </p>
+            <p className="help-text">生产环境自定义域名；留空则使用默认规则。</p>
           </div>
 
           <div className="form-group">
-            <label>Traefik Entrypoints</label>
+            <label>Traefik 入口点（Entrypoints）</label>
             <input
               type="text"
               value={formData.traefik_entrypoints || "websecure"}
               onChange={(e) => setFormData({ ...formData, traefik_entrypoints: e.target.value })}
             />
-            <p className="help-text">
-              Comma-separated list of Traefik entrypoints (e.g., "web,websecure")
-            </p>
+            <p className="help-text">用逗号分隔（例如："web,websecure"）。</p>
           </div>
         </div>
 
@@ -234,10 +230,10 @@ export function ServiceEditPage() {
 
         <div className="form-actions">
           <button type="button" onClick={() => navigate(-1)} className="btn-secondary">
-            Cancel
+            取消
           </button>
           <button type="submit" disabled={updateMutation.isPending} className="btn-primary">
-            {updateMutation.isPending ? "Saving..." : "Save Changes"}
+            {updateMutation.isPending ? "保存中..." : "保存"}
           </button>
         </div>
       </form>

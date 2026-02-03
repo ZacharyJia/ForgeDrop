@@ -40,34 +40,34 @@ export function TokensPage() {
   };
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>;
+    return <div className="loading">加载中...</div>;
   }
 
   return (
     <div className="tokens-page">
       <div className="page-header">
-        <h1>API Tokens</h1>
+        <h1>API 令牌</h1>
         <button onClick={() => setShowCreate(true)} className="btn-primary">
-          + Create Token
+          + 创建令牌
         </button>
       </div>
 
       {showCreate && !newToken && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Create API Token</h2>
+            <h2>创建 API 令牌</h2>
             <form onSubmit={handleCreate}>
               <div className="form-group">
-                <label>Token Name</label>
+                <label>令牌名称</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="CI Token for my-app"
+                  placeholder="例如：my-app 的 CI 令牌"
                   required
                 />
                 <p className="help-text">
-                  A descriptive name to identify this token
+                  用于区分用途的备注名称
                 </p>
               </div>
               {createMutation.error && (
@@ -75,10 +75,10 @@ export function TokensPage() {
               )}
               <div className="modal-actions">
                 <button type="button" onClick={() => setShowCreate(false)}>
-                  Cancel
+                  取消
                 </button>
                 <button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending ? "Creating..." : "Create Token"}
+                  {createMutation.isPending ? "创建中..." : "创建"}
                 </button>
               </div>
             </form>
@@ -89,25 +89,25 @@ export function TokensPage() {
       {newToken && (
         <div className="modal-overlay" onClick={closeNewTokenModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Token Created Successfully</h2>
+            <h2>令牌创建成功</h2>
             <div className="success-message">
-              <p><strong>Important:</strong> Copy this token now. You won't be able to see it again!</p>
+              <p><strong>重要：</strong>请立即复制该令牌，之后将无法再次查看明文。</p>
               <div className="token-display">
                 <code>{newToken}</code>
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(newToken);
-                    alert("Token copied to clipboard!");
+                    alert("已复制到剪贴板");
                   }}
                   className="btn-secondary"
                 >
-                  Copy
+                  复制
                 </button>
               </div>
             </div>
             <div className="modal-actions">
               <button onClick={closeNewTokenModal} className="btn-primary">
-                Done
+                完成
               </button>
             </div>
           </div>
@@ -123,31 +123,31 @@ export function TokensPage() {
                 <button
                   className="btn-danger-small"
                   onClick={() => {
-                    if (confirm(`Revoke token "${token.name}"?`)) {
+                    if (confirm(`确认撤销令牌「${token.name}」？`)) {
                       revokeMutation.mutate(token.id);
                     }
                   }}
                 >
-                  Revoke
+                  撤销
                 </button>
               )}
             </div>
             <div className="token-body">
               <div className="info-item">
-                <strong>Prefix:</strong> <code>{token.prefix}...</code>
+                <strong>前缀：</strong> <code>{token.prefix}...</code>
               </div>
               <div className="info-item">
-                <strong>Status:</strong>{" "}
+                <strong>状态：</strong>{" "}
                 {token.revoked_at ? (
-                  <span className="badge badge-disabled">Revoked</span>
+                  <span className="badge badge-disabled">已撤销</span>
                 ) : (
-                  <span className="badge badge-enabled">Active</span>
+                  <span className="badge badge-enabled">有效</span>
                 )}
               </div>
               <div className="token-meta">
-                Created: {new Date(token.created_at).toLocaleDateString()}
+                创建时间：{new Date(token.created_at).toLocaleDateString()}
                 {token.revoked_at && (
-                  <> | Revoked: {new Date(token.revoked_at).toLocaleDateString()}</>
+                  <> | 撤销时间：{new Date(token.revoked_at).toLocaleDateString()}</>
                 )}
               </div>
             </div>
@@ -157,8 +157,8 @@ export function TokensPage() {
 
       {tokens?.length === 0 && (
         <div className="empty-state">
-          <p>No API tokens yet.</p>
-          <p className="muted">Create tokens to allow CI systems to upload artifacts.</p>
+          <p>暂无 API 令牌。</p>
+          <p className="muted">创建令牌后，CI 才能上传制品（artifact）。</p>
         </div>
       )}
     </div>

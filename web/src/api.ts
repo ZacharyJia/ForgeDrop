@@ -136,8 +136,8 @@ export const api = {
     await apiFetch(`/api/v1/admin/services/${serviceId}`, { method: 'DELETE' });
   },
 
-  async getComposeTemplateExample(): Promise<{ example: string; description: string }> {
-    return apiFetch('/api/v1/admin/services/dummy/compose-template-example');
+  async getComposeTemplateExample(serviceId: string): Promise<{ example: string; description: string }> {
+    return apiFetch(`/api/v1/admin/services/${serviceId}/compose-template-example`);
   },
 
   // Repos

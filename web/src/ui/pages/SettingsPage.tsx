@@ -21,7 +21,7 @@ export function SettingsPage() {
     mutationFn: () => api.updateSettings(formData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      alert("Settings saved successfully!");
+      alert("设置已保存");
     },
   });
 
@@ -31,19 +31,19 @@ export function SettingsPage() {
   };
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>;
+    return <div className="loading">加载中...</div>;
   }
 
   return (
     <div className="settings-page">
-      <h1>Settings</h1>
+      <h1>设置</h1>
 
       <form onSubmit={handleSubmit} className="settings-form">
         <div className="form-section">
-          <h2>Domain Configuration</h2>
+          <h2>域名配置</h2>
           
           <div className="form-group">
-            <label>Base Domain</label>
+            <label>基础域名</label>
             <input
               type="text"
               value={formData.base_domain || ""}
@@ -51,12 +51,12 @@ export function SettingsPage() {
               placeholder="example.com"
             />
             <p className="help-text">
-              Base domain for your deployments (e.g., example.com)
+              用于部署的基础域名（例如：example.com）
             </p>
           </div>
 
           <div className="form-group">
-            <label>Preview Host Template</label>
+            <label>预览环境域名模板</label>
             <input
               type="text"
               value={formData.preview_host_template || ""}
@@ -64,17 +64,17 @@ export function SettingsPage() {
               placeholder="pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}"
             />
             <p className="help-text">
-              Template for preview environment hostnames. Available variables: 
-              {"{app}"}, {"{repoSlug}"}, {"{pr}"}, {"{service}"}, {"{base_domain}"}
+              预览环境域名模板，可用变量：
+              {"{app}"}、{"{repoSlug}"}、{"{pr}"}、{"{service}"}、{"{base_domain}"}
             </p>
           </div>
         </div>
 
         <div className="form-section">
-          <h2>Docker Configuration</h2>
+          <h2>Docker 配置</h2>
           
           <div className="form-group">
-            <label>Docker Network</label>
+            <label>Docker 网络</label>
             <input
               type="text"
               value={formData.docker_network || ""}
@@ -82,31 +82,31 @@ export function SettingsPage() {
               placeholder="traefik"
             />
             <p className="help-text">
-              Docker network name for containers (must exist and be accessible by Traefik)
+              容器加入的 Docker 网络名称（需已存在，且 Traefik 可访问）
             </p>
           </div>
         </div>
 
         <div className="form-section">
-          <h2>Integration URLs</h2>
+          <h2>集成地址</h2>
           
           <div className="info-box">
             <div className="info-item">
-              <strong>Artifact Upload URL:</strong>
+              <strong>制品上传地址：</strong>
               <code>{settings?.artifact_upload_url}</code>
             </div>
             <p className="help-text">
-              Use this URL in your CI pipeline to upload artifacts
+              在 CI 流水线中使用该地址上传制品（artifact）
             </p>
           </div>
 
           <div className="info-box">
             <div className="info-item">
-              <strong>Forgejo Webhook URL:</strong>
+              <strong>Forgejo Webhook 地址：</strong>
               <code>{settings?.forgejo_webhook_url}</code>
             </div>
             <p className="help-text">
-              Configure this URL as a webhook in your Forgejo repository settings
+              在 Forgejo 仓库设置中将该地址配置为 Webhook
             </p>
           </div>
         </div>
@@ -117,21 +117,21 @@ export function SettingsPage() {
 
         <div className="form-actions">
           <button type="submit" disabled={updateMutation.isPending} className="btn-primary">
-            {updateMutation.isPending ? "Saving..." : "Save Settings"}
+            {updateMutation.isPending ? "保存中..." : "保存设置"}
           </button>
         </div>
       </form>
 
       <div className="section">
-        <h2>Setup Guide</h2>
+        <h2>配置指南</h2>
         <div className="info-box">
           <ol>
-            <li>Configure the base domain and Docker network above</li>
-            <li>Set up wildcard DNS for preview environments (*.example.com → your server)</li>
-            <li>Configure Traefik with Docker provider and the same network</li>
-            <li>Add repositories and configure webhooks</li>
-            <li>Create applications and services</li>
-            <li>Generate API tokens for CI integration</li>
+            <li>先配置上面的基础域名和 Docker 网络</li>
+            <li>为预览环境配置通配符 DNS（例如：*.example.com 指向你的服务器）</li>
+            <li>配置 Traefik（Docker provider）并加入同一网络</li>
+            <li>添加仓库并配置 Webhook</li>
+            <li>创建应用和服务</li>
+            <li>创建 API 令牌用于 CI 集成</li>
           </ol>
         </div>
       </div>
