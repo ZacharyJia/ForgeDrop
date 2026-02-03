@@ -23,6 +23,106 @@ import (
 	webui "forge-drop/web"
 )
 
+func appJSON(a *db.App) map[string]any {
+	if a == nil {
+		return nil
+	}
+	return map[string]any{
+		"id":         a.ID,
+		"app_key":    a.AppKey,
+		"name":       a.Name,
+		"created_at": a.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func serviceJSON(svc *db.Service) map[string]any {
+	if svc == nil {
+		return nil
+	}
+	return map[string]any{
+		"id":                  svc.ID,
+		"app_id":              svc.AppID,
+		"service_key":         svc.ServiceKey,
+		"name":                svc.Name,
+		"image":               svc.Image,
+		"command":             svc.Command,
+		"container_port":      svc.ContainerPort,
+		"run_user":            svc.RunUser,
+		"env":                 svc.Env,
+		"prod_host":           svc.ProdHost,
+		"traefik_entrypoints": svc.TraefikEntrypnts,
+		"compose_template":    svc.ComposeTemplate,
+		"use_compose":         svc.UseCompose,
+		"revision":            svc.Revision,
+		"enabled":             svc.Enabled,
+		"created_at":          svc.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"updated_at":          svc.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func slotJSON(sl db.Slot) map[string]any {
+	return map[string]any{
+		"id":             sl.ID,
+		"service_id":     sl.ServiceID,
+		"slot_key":       sl.SlotKey,
+		"name":           sl.Name,
+		"repo_id":        sl.RepoID,
+		"container_path": sl.ContainerPath,
+		"created_at":     sl.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"updated_at":     sl.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func envJSON(e *db.Env) map[string]any {
+	if e == nil {
+		return nil
+	}
+	out := map[string]any{
+		"id":                  e.ID,
+		"app_id":              e.AppID,
+		"kind":                e.Kind,
+		"name":                e.Name,
+		"created_at":          e.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"current_snapshot_id": e.CurrentSnapshot,
+		"repo_id":             e.RepoID,
+		"pr_number":           e.PRNumber,
+		"deleted_at":          e.DeletedAt,
+		"repo_full_name":      e.RepoFullName,
+		"repo_slug":           e.RepoSlug,
+	}
+	return out
+}
+
+func repoJSON(r *db.Repo) map[string]any {
+	if r == nil {
+		return nil
+	}
+	return map[string]any{
+		"id":             r.ID,
+		"full_name":      r.FullName,
+		"slug":           r.Slug,
+		"webhook_secret": r.WebhookSecret,
+		"created_at":     r.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func apiTokenJSON(t *db.APIToken) map[string]any {
+	if t == nil {
+		return nil
+	}
+	out := map[string]any{
+		"id":         t.ID,
+		"name":       t.Name,
+		"prefix":     t.Prefix,
+		"created_at": t.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"revoked_at": nil,
+	}
+	if t.RevokedAt != nil {
+		out["revoked_at"] = t.RevokedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return out
+}
+
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -266,13 +366,8 @@ func (s *Server) handleAdminTokens(w http.ResponseWriter, r *http.Request, rest 
 		}
 		var out []map[string]any
 		for _, t := range tokens {
-			out = append(out, map[string]any{
-				"id":         t.ID,
-				"name":       t.Name,
-				"prefix":     t.Prefix,
-				"created_at": t.CreatedAt,
-				"revoked_at": t.RevokedAt,
-			})
+			tok := t
+			out = append(out, apiTokenJSON(&tok))
 		}
 		httpx.WriteJSON(w, http.StatusOK, out)
 		return
@@ -300,11 +395,21 @@ func (s *Server) handleAdminTokens(w http.ResponseWriter, r *http.Request, rest 
 			return
 		}
 		httpx.WriteJSON(w, http.StatusCreated, map[string]any{
-			"id":     t.ID,
-			"name":   t.Name,
-			"prefix": t.Prefix,
-			"token":  plain,
+			"token":       apiTokenJSON(t),
+			"plain_token": plain,
 		})
+		return
+	case r.Method == "DELETE" && rest != "":
+		id := strings.TrimSuffix(rest, "/")
+		if id == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "id required")
+			return
+		}
+		if err := s.store.RevokeAPIToken(r.Context(), id); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "revoke failed")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	case r.Method == "POST" && strings.HasSuffix(rest, "/revoke"):
 		id := strings.TrimSuffix(rest, "/revoke")
@@ -336,12 +441,8 @@ func (s *Server) handleAdminRepos(w http.ResponseWriter, r *http.Request, rest s
 		}
 		var out []map[string]any
 		for _, rr := range repos {
-			out = append(out, map[string]any{
-				"id":             rr.ID,
-				"full_name":      rr.FullName,
-				"slug":           rr.Slug,
-				"webhook_secret": rr.WebhookSecret,
-			})
+			r := rr
+			out = append(out, repoJSON(&r))
 		}
 		httpx.WriteJSON(w, http.StatusOK, out)
 		return
@@ -364,12 +465,19 @@ func (s *Server) handleAdminRepos(w http.ResponseWriter, r *http.Request, rest s
 			httpx.WriteError(w, http.StatusInternalServerError, "create failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusCreated, map[string]any{
-			"id":             repo.ID,
-			"full_name":      repo.FullName,
-			"slug":           repo.Slug,
-			"webhook_secret": repo.WebhookSecret,
-		})
+		httpx.WriteJSON(w, http.StatusCreated, repoJSON(repo))
+		return
+	case r.Method == "DELETE" && rest != "":
+		id := strings.TrimSuffix(rest, "/")
+		if err := s.store.DeleteRepo(r.Context(), id); err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				httpx.WriteError(w, http.StatusNotFound, "not found")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "delete failed")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	case r.Method == "PUT" && rest != "":
 		id := rest
@@ -406,7 +514,8 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 			}
 			var out []map[string]any
 			for _, a := range apps {
-				out = append(out, map[string]any{"id": a.ID, "app_key": a.AppKey, "name": a.Name})
+				app := a
+				out = append(out, appJSON(&app))
 			}
 			httpx.WriteJSON(w, http.StatusOK, out)
 			return
@@ -430,7 +539,7 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusCreated, map[string]any{"id": app.ID, "app_key": app.AppKey, "name": app.Name})
+			httpx.WriteJSON(w, http.StatusCreated, appJSON(app))
 			return
 		default:
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -450,7 +559,17 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 			}
 			services, _ := s.store.ListServicesByApp(r.Context(), appID)
 			envs, _ := s.store.ListEnvsByApp(r.Context(), appID)
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"app": app, "services": services, "envs": envs})
+			var outSvcs []map[string]any
+			for _, svc := range services {
+				s := svc
+				outSvcs = append(outSvcs, serviceJSON(&s))
+			}
+			var outEnvs []map[string]any
+			for _, e := range envs {
+				env := e
+				outEnvs = append(outEnvs, envJSON(&env))
+			}
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"app": appJSON(app), "services": outSvcs, "envs": outEnvs})
 			return
 		case "DELETE":
 			if err := s.store.DeleteApp(r.Context(), appID); err != nil {
@@ -488,7 +607,12 @@ func (s *Server) handleAdminAppServices(w http.ResponseWriter, r *http.Request, 
 				httpx.WriteError(w, http.StatusInternalServerError, "db error")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusOK, svcs)
+			var out []map[string]any
+			for _, svc := range svcs {
+				s := svc
+				out = append(out, serviceJSON(&s))
+			}
+			httpx.WriteJSON(w, http.StatusOK, out)
 			return
 		case "POST":
 			var req struct {
@@ -516,7 +640,7 @@ func (s *Server) handleAdminAppServices(w http.ResponseWriter, r *http.Request, 
 				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusCreated, svc)
+			httpx.WriteJSON(w, http.StatusCreated, serviceJSON(svc))
 			return
 		default:
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -582,7 +706,11 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 				return
 			}
 			slots, _ := s.store.ListSlotsByService(r.Context(), serviceID)
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"service": svc, "slots": slots})
+			var outSlots []map[string]any
+			for _, sl := range slots {
+				outSlots = append(outSlots, slotJSON(sl))
+			}
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"service": serviceJSON(svc), "slots": outSlots})
 			return
 		case "PUT":
 			var req struct {
@@ -638,7 +766,7 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 				httpx.WriteError(w, http.StatusInternalServerError, "update failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusOK, updated)
+			httpx.WriteJSON(w, http.StatusOK, serviceJSON(updated))
 			return
 		case "DELETE":
 			if err := s.store.DeleteService(r.Context(), serviceID); err != nil {

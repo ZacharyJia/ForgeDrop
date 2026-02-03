@@ -459,6 +459,18 @@ func (s *Store) GetRepoByFullName(ctx context.Context, fullName string) (*Repo, 
 	return &r, nil
 }
 
+func (s *Store) DeleteRepo(ctx context.Context, id string) error {
+	res, err := s.sql.ExecContext(ctx, `DELETE FROM repos WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func RepoSlug(fullName string) string {
 	s := strings.ToLower(fullName)
 	var b strings.Builder
