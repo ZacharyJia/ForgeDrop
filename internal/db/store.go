@@ -74,6 +74,8 @@ type Service struct {
 	Env              map[string]string
 	ProdHost         string
 	TraefikEntrypnts string
+	ComposeTemplate  string // Docker Compose YAML template
+	UseCompose       bool   // If true, use compose_template instead of manual Docker API
 	Revision         int
 	Enabled          bool
 	CreatedAt        time.Time
@@ -582,9 +584,9 @@ func (s *Store) UpdateService(ctx context.Context, serviceID string, patch Servi
 		return nil, err
 	}
 	res, err := s.sql.ExecContext(ctx, `UPDATE services
-		SET name=?, image=?, command=?, container_port=?, run_user=?, env_json=?, prod_host=?, traefik_entrypoints=?, enabled=?, revision=revision+1, updated_at=datetime('now')
+		SET name=?, image=?, command=?, container_port=?, run_user=?, env_json=?, prod_host=?, traefik_entrypoints=?, compose_template=?, use_compose=?, enabled=?, revision=revision+1, updated_at=datetime('now')
 		WHERE id=?`,
-		patch.Name, patch.Image, patch.Command, patch.ContainerPort, patch.RunUser, string(envJSON), patch.ProdHost, patch.TraefikEntrypnts, boolToInt(patch.Enabled), serviceID)
+		patch.Name, patch.Image, patch.Command, patch.ContainerPort, patch.RunUser, string(envJSON), patch.ProdHost, patch.TraefikEntrypnts, patch.ComposeTemplate, boolToInt(patch.UseCompose), boolToInt(patch.Enabled), serviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -599,10 +601,10 @@ func (s *Store) GetServiceByID(ctx context.Context, id string) (*Service, error)
 	var svc Service
 	var envJSON string
 	var createdAt, updatedAt string
-	var enabled int
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, revision, enabled, created_at, updated_at
+	var enabled, useCompose int
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, use_compose, revision, enabled, created_at, updated_at
 		FROM services WHERE id=?`, id).
-		Scan(&svc.ID, &svc.AppID, &svc.ServiceKey, &svc.Name, &svc.Image, &svc.Command, &svc.ContainerPort, &svc.RunUser, &envJSON, &svc.ProdHost, &svc.TraefikEntrypnts, &svc.Revision, &enabled, &createdAt, &updatedAt); err != nil {
+		Scan(&svc.ID, &svc.AppID, &svc.ServiceKey, &svc.Name, &svc.Image, &svc.Command, &svc.ContainerPort, &svc.RunUser, &envJSON, &svc.ProdHost, &svc.TraefikEntrypnts, &svc.ComposeTemplate, &useCompose, &svc.Revision, &enabled, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -610,6 +612,7 @@ func (s *Store) GetServiceByID(ctx context.Context, id string) (*Service, error)
 	}
 	_ = json.Unmarshal([]byte(envJSON), &svc.Env)
 	svc.Enabled = enabled != 0
+	svc.UseCompose = useCompose != 0
 	svc.CreatedAt, _ = parseSQLiteTime(createdAt)
 	svc.UpdatedAt, _ = parseSQLiteTime(updatedAt)
 	return &svc, nil

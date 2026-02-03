@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 
+	"forge-drop/internal/compose"
 	"forge-drop/internal/db"
 	"forge-drop/internal/dockerx"
 )
@@ -28,10 +29,11 @@ type Options struct {
 }
 
 type Deployer struct {
-	dataDir string
-	store   *db.Store
-	docker  *dockerx.Client
-	logger  *log.Logger
+	dataDir        string
+	store          *db.Store
+	docker         *dockerx.Client
+	logger         *log.Logger
+	composeManager *compose.ComposeManager
 }
 
 type mount struct {
@@ -43,10 +45,11 @@ type mount struct {
 
 func New(opts Options) *Deployer {
 	return &Deployer{
-		dataDir: opts.DataDir,
-		store:   opts.Store,
-		docker:  opts.Docker,
-		logger:  opts.Logger,
+		dataDir:        opts.DataDir,
+		store:          opts.Store,
+		docker:         opts.Docker,
+		logger:         opts.Logger,
+		composeManager: compose.NewManager(opts.DataDir),
 	}
 }
 
@@ -112,6 +115,7 @@ func (d *Deployer) ApplyService(ctx context.Context, envID, serviceID string) er
 	}
 
 	var mounts []mount
+	artifactPaths := make(map[string]string) // slot_key -> host_path for compose templates
 	for _, sl := range slots {
 		a, ok := artBySlotKey[sl.SlotKey]
 		if !ok {
@@ -124,6 +128,7 @@ func (d *Deployer) ApplyService(ctx context.Context, envID, serviceID string) er
 			containerPath: sl.ContainerPath,
 			artifact:      a,
 		})
+		artifactPaths[sl.SlotKey] = hostPath
 	}
 	if len(mounts) == 0 {
 		return fmt.Errorf("no artifacts available for this service in current snapshot")
@@ -136,7 +141,77 @@ func (d *Deployer) ApplyService(ctx context.Context, envID, serviceID string) er
 		}
 	}
 
-	// 2) ensure container (docker optional)
+	// 2) Check if using Docker Compose mode
+	if svc.UseCompose && strings.TrimSpace(svc.ComposeTemplate) != "" {
+		return d.applyServiceWithCompose(ctx, env, app, svc, artifactPaths)
+	}
+
+	// 3) Fall back to manual Docker API mode
+	return d.applyServiceWithDocker(ctx, env, app, svc, mounts)
+}
+
+func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app *db.App, svc *db.Service, artifactPaths map[string]string) error {
+	networkName, _ := d.store.GetSetting(ctx, "docker_network")
+	hostTpl, _ := d.store.GetSetting(ctx, "preview_host_template")
+	baseDomain, _ := d.store.GetSetting(ctx, "base_domain")
+
+	// Determine host
+	hostRule := ""
+	if env.Kind == "preview" {
+		repoSlug := ""
+		if env.RepoSlug != nil {
+			repoSlug = *env.RepoSlug
+		}
+		pr := 0
+		if env.PRNumber != nil {
+			pr = *env.PRNumber
+		}
+		host := renderHostTemplate(hostTpl, app.AppKey, repoSlug, pr, svc.ServiceKey, baseDomain)
+		if host != "" {
+			hostRule = host
+		}
+	} else if env.Kind == "named" && env.Name == "prod" && strings.TrimSpace(svc.ProdHost) != "" {
+		hostRule = strings.TrimSpace(svc.ProdHost)
+	}
+
+	// Build template data
+	templateData := compose.BuildTemplateData(
+		svc, env, app,
+		artifactPaths,
+		hostRule,
+		networkName,
+		baseDomain,
+		d.dataDir,
+	)
+
+	// Render compose template
+	rendered, err := compose.RenderTemplate(svc.ComposeTemplate, templateData)
+	if err != nil {
+		return fmt.Errorf("render compose template: %w", err)
+	}
+
+	// Write compose file
+	if err := d.composeManager.WriteComposeFile(env.ID, svc.ID, rendered); err != nil {
+		return fmt.Errorf("write compose file: %w", err)
+	}
+
+	// Deploy with docker compose
+	if err := d.composeManager.Up(ctx, env.ID, svc.ID, svc.ServiceKey); err != nil {
+		return fmt.Errorf("docker compose up: %w", err)
+	}
+
+	d.logf("Deployed service %s (env=%s) using Docker Compose", svc.ServiceKey, env.Name)
+	return nil
+}
+
+func (d *Deployer) logf(format string, args ...any) {
+	if d.logger != nil {
+		d.logger.Printf(format, args...)
+	}
+}
+
+func (d *Deployer) applyServiceWithDocker(ctx context.Context, env *db.Env, app *db.App, svc *db.Service, mounts []mount) error {
+	// Original Docker API implementation
 	if d.docker == nil || !d.docker.Enabled() {
 		return nil
 	}
@@ -270,6 +345,21 @@ func (d *Deployer) RecreateService(ctx context.Context, envID, serviceID string)
 }
 
 func (d *Deployer) CleanupEnv(ctx context.Context, envID string) error {
+	// Get all services for this env to clean up compose projects
+	env, err := d.store.GetEnvByID(ctx, envID)
+	if err == nil {
+		services, err := d.store.ListServicesByApp(ctx, env.AppID)
+		if err == nil {
+			for _, svc := range services {
+				if svc.UseCompose {
+					// Clean up compose project
+					_ = d.composeManager.Down(ctx, envID, svc.ID, svc.ServiceKey)
+				}
+			}
+		}
+	}
+
+	// Clean up Docker API containers
 	if d.docker != nil && d.docker.Enabled() {
 		containers, err := d.docker.ListContainers(ctx, true, map[string]string{"forge-drop.env_id": envID})
 		if err == nil {
@@ -278,6 +368,7 @@ func (d *Deployer) CleanupEnv(ctx context.Context, envID string) error {
 			}
 		}
 	}
+
 	// runtime dir
 	rt := filepath.Join(d.dataDir, "runtime", "env-"+envID)
 	_ = os.RemoveAll(rt)
