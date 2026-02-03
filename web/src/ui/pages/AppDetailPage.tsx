@@ -28,7 +28,8 @@ export function AppDetailPage() {
     return <div className="error">Application not found</div>;
   }
 
-  const { app, services } = data;
+  const app = data.app;
+  const services = data.services ?? [];
 
   return (
     <div className="app-detail-page">

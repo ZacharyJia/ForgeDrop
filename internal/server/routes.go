@@ -365,6 +365,7 @@ func (s *Server) handleAdminTokens(w http.ResponseWriter, r *http.Request, rest 
 			return
 		}
 		var out []map[string]any
+		out = make([]map[string]any, 0, len(tokens))
 		for _, t := range tokens {
 			tok := t
 			out = append(out, apiTokenJSON(&tok))
@@ -440,6 +441,7 @@ func (s *Server) handleAdminRepos(w http.ResponseWriter, r *http.Request, rest s
 			return
 		}
 		var out []map[string]any
+		out = make([]map[string]any, 0, len(repos))
 		for _, rr := range repos {
 			r := rr
 			out = append(out, repoJSON(&r))
@@ -513,6 +515,7 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 				return
 			}
 			var out []map[string]any
+			out = make([]map[string]any, 0, len(apps))
 			for _, a := range apps {
 				app := a
 				out = append(out, appJSON(&app))
@@ -559,12 +562,12 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 			}
 			services, _ := s.store.ListServicesByApp(r.Context(), appID)
 			envs, _ := s.store.ListEnvsByApp(r.Context(), appID)
-			var outSvcs []map[string]any
+			outSvcs := make([]map[string]any, 0, len(services))
 			for _, svc := range services {
 				s := svc
 				outSvcs = append(outSvcs, serviceJSON(&s))
 			}
-			var outEnvs []map[string]any
+			outEnvs := make([]map[string]any, 0, len(envs))
 			for _, e := range envs {
 				env := e
 				outEnvs = append(outEnvs, envJSON(&env))
@@ -607,7 +610,7 @@ func (s *Server) handleAdminAppServices(w http.ResponseWriter, r *http.Request, 
 				httpx.WriteError(w, http.StatusInternalServerError, "db error")
 				return
 			}
-			var out []map[string]any
+			out := make([]map[string]any, 0, len(svcs))
 			for _, svc := range svcs {
 				s := svc
 				out = append(out, serviceJSON(&s))
@@ -706,7 +709,7 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 				return
 			}
 			slots, _ := s.store.ListSlotsByService(r.Context(), serviceID)
-			var outSlots []map[string]any
+			outSlots := make([]map[string]any, 0, len(slots))
 			for _, sl := range slots {
 				outSlots = append(outSlots, slotJSON(sl))
 			}

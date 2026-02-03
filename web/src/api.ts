@@ -111,7 +111,7 @@ export const api = {
     });
   },
 
-  async getApp(appId: string): Promise<{ app: App; services: Service[] }> {
+  async getApp(appId: string): Promise<{ app: App; services: Service[]; envs: any[] }> {
     return apiFetch(`/api/v1/admin/apps/${appId}`);
   },
 
