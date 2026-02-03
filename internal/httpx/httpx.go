@@ -3,7 +3,6 @@ package httpx
 import (
 	"crypto/subtle"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -33,9 +32,6 @@ func ReadJSON(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) e
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		return err
-	}
-	if dec.More() {
-		return errors.New("unexpected extra JSON")
 	}
 	return nil
 }
