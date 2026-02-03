@@ -27,6 +27,21 @@ func (s *Server) withJSON(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) withTimeout(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Prevent any single request from hanging the whole process.
+		// Keep upload endpoints generous; keep JSON/admin endpoints tight.
+		timeout := 15 * time.Second
+		p := r.URL.Path
+		if p == "/api/v1/artifacts/upload" || strings.Contains(p, "/artifacts/upload-batch") {
+			timeout = 30 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func (s *Server) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, ok := auth.GetSessionToken(r)

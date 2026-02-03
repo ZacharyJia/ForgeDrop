@@ -7,7 +7,7 @@ data/
 # Go
 .cache/
 /bin/
-forge-drop
+/forge-drop
 
 # Frontend (optional)
 web/node_modules/

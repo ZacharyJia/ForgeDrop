@@ -133,11 +133,11 @@ func (s *Server) routes() http.Handler {
 	})
 
 	// Public: setup + auth
-	mux.HandleFunc("/api/v1/setup", method("POST", requireSetupAllowed(s.store, s.handleSetup)))
-	mux.HandleFunc("/api/v1/auth/login", method("POST", s.handleLogin))
-	mux.HandleFunc("/api/v1/auth/logout", method("POST", s.handleLogout))
-	mux.Handle("/api/v1/admin/", s.withJSON(s.requireSession(http.HandlerFunc(s.handleAdmin))))
-	mux.Handle("/api/v1/artifacts/upload", s.withJSON(s.requireBearerToken(http.HandlerFunc(s.handleArtifactUpload))))
+	mux.Handle("/api/v1/setup", s.withTimeout(http.HandlerFunc(method("POST", requireSetupAllowed(s.store, s.handleSetup)))))
+	mux.Handle("/api/v1/auth/login", s.withTimeout(http.HandlerFunc(method("POST", s.handleLogin))))
+	mux.Handle("/api/v1/auth/logout", s.withTimeout(http.HandlerFunc(method("POST", s.handleLogout))))
+	mux.Handle("/api/v1/admin/", s.withJSON(s.withTimeout(s.requireSession(http.HandlerFunc(s.handleAdmin)))))
+	mux.Handle("/api/v1/artifacts/upload", s.withJSON(s.withTimeout(s.requireBearerToken(http.HandlerFunc(s.handleArtifactUpload)))))
 
 	mux.HandleFunc("/webhooks/forgejo", method("POST", s.handleForgejoWebhook))
 
