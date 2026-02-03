@@ -1,0 +1,14 @@
+data/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+
+# Go
+.cache/
+/bin/
+
+# Frontend (optional)
+web/node_modules/
+web/.vite/
+
