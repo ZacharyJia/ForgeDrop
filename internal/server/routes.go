@@ -594,6 +594,8 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 				Env              map[string]string `json:"env"`
 				ProdHost         string            `json:"prod_host"`
 				TraefikEntrypnts string            `json:"traefik_entrypoints"`
+				ComposeTemplate  string            `json:"compose_template"`
+				UseCompose       bool              `json:"use_compose"`
 				Enabled          bool              `json:"enabled"`
 			}
 			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
@@ -628,6 +630,8 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 			if req.TraefikEntrypnts != "" {
 				patch.TraefikEntrypnts = req.TraefikEntrypnts
 			}
+			patch.ComposeTemplate = req.ComposeTemplate
+			patch.UseCompose = req.UseCompose
 			patch.Enabled = req.Enabled
 			updated, err := s.store.UpdateService(r.Context(), serviceID, patch)
 			if err != nil {
@@ -659,6 +663,10 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 	}
 	if len(parts) >= 2 && parts[1] == "redeploy" {
 		s.handleServiceRedeploy(w, r, serviceID)
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "compose-template-example" && r.Method == "GET" {
+		s.handleComposeTemplateExample(w, r)
 		return
 	}
 	httpx.WriteError(w, http.StatusNotFound, "not found")
@@ -1136,4 +1144,54 @@ func hmacSHA256Hex(secret, body []byte) string {
 	mac := hmac.New(sha256.New, secret)
 	_, _ = mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (s *Server) handleComposeTemplateExample(w http.ResponseWriter, r *http.Request) {
+	example := `services:
+  app:
+    image: eclipse-temurin:17-jre
+    command: java -jar /app/app.jar
+    volumes:
+      - {{index .Artifacts "main"}}:/app/app.jar:ro
+    environment:
+      SPRING_PROFILES_ACTIVE: {{.EnvName}}
+      {{range $key, $value := .Env}}
+      {{$key}}: {{$value}}
+      {{end}}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.{{.RouterName}}.rule=Host(` + "`{{.Host}}`" + `)
+      - traefik.http.routers.{{.RouterName}}.entrypoints={{.EntryPoints}}
+      - traefik.http.routers.{{.RouterName}}.tls=true
+      - traefik.http.services.{{.TraefikService}}.loadbalancer.server.port={{.Port}}
+    networks:
+      - {{.Network}}
+    restart: unless-stopped
+    user: "1000:1000"
+
+networks:
+  {{.Network}}:
+    external: true
+
+# Available template variables:
+# .ServiceID, .ServiceKey, .ServiceName - Service info
+# .EnvID, .EnvName, .EnvKind - Environment info (prod/staging/preview)
+# .AppID, .AppKey - Application info
+# .Artifacts - Map of slot_key -> artifact_path (e.g., {{index .Artifacts "main"}})
+# .Host - Resolved hostname for this service
+# .RouterName - Traefik router name
+# .TraefikService - Traefik service name
+# .Port - Container port
+# .Network - Docker network name
+# .BaseDomain - Base domain
+# .EntryPoints - Traefik entrypoints
+# .Env - Environment variables map
+# .RuntimeDir - Runtime directory path
+# .DataDir - Data directory path
+# .RepoFullName, .RepoSlug, .PRNumber - For preview environments
+`
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"example":     example,
+		"description": "Docker Compose template with Go template syntax. Use {{.Variable}} to access data.",
+	})
 }
