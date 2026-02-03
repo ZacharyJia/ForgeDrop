@@ -642,22 +642,28 @@ func (s *Store) GetServiceByKey(ctx context.Context, appID, serviceKey string) (
 }
 
 func (s *Store) ListServicesByApp(ctx context.Context, appID string) ([]Service, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT id FROM services WHERE app_id=? ORDER BY service_key ASC`, appID)
+	rows, err := s.sql.QueryContext(ctx, `SELECT id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, use_compose, revision, enabled, created_at, updated_at
+		FROM services WHERE app_id=? ORDER BY service_key ASC`, appID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []Service
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var svc Service
+		var envJSON string
+		var createdAt, updatedAt string
+		var enabled, useCompose int
+		if err := rows.Scan(&svc.ID, &svc.AppID, &svc.ServiceKey, &svc.Name, &svc.Image, &svc.Command, &svc.ContainerPort, &svc.RunUser,
+			&envJSON, &svc.ProdHost, &svc.TraefikEntrypnts, &svc.ComposeTemplate, &useCompose, &svc.Revision, &enabled, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
-		svc, err := s.GetServiceByID(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *svc)
+		_ = json.Unmarshal([]byte(envJSON), &svc.Env)
+		svc.Enabled = enabled != 0
+		svc.UseCompose = useCompose != 0
+		svc.CreatedAt, _ = parseSQLiteTime(createdAt)
+		svc.UpdatedAt, _ = parseSQLiteTime(updatedAt)
+		out = append(out, svc)
 	}
 	return out, rows.Err()
 }
@@ -723,22 +729,22 @@ func (s *Store) GetSlotByKey(ctx context.Context, serviceID, slotKey string) (*S
 }
 
 func (s *Store) ListSlotsByService(ctx context.Context, serviceID string) ([]Slot, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT id FROM slots WHERE service_id=? ORDER BY slot_key ASC`, serviceID)
+	rows, err := s.sql.QueryContext(ctx, `SELECT id, service_id, slot_key, name, repo_id, container_path, created_at, updated_at
+		FROM slots WHERE service_id=? ORDER BY slot_key ASC`, serviceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []Slot
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var sl Slot
+		var createdAt, updatedAt string
+		if err := rows.Scan(&sl.ID, &sl.ServiceID, &sl.SlotKey, &sl.Name, &sl.RepoID, &sl.ContainerPath, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
-		sl, err := s.GetSlotByID(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *sl)
+		sl.CreatedAt, _ = parseSQLiteTime(createdAt)
+		sl.UpdatedAt, _ = parseSQLiteTime(updatedAt)
+		out = append(out, sl)
 	}
 	return out, rows.Err()
 }
@@ -1207,22 +1213,51 @@ func (s *Store) FindPreviewEnvID(ctx context.Context, appID, repoID string, prNu
 }
 
 func (s *Store) FindEnvsForRepoPR(ctx context.Context, repoID string, prNumber int) ([]Env, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT id FROM envs WHERE kind='preview' AND repo_id=? AND pr_number=? AND deleted_at IS NULL`, repoID, prNumber)
+	rows, err := s.sql.QueryContext(ctx, `SELECT e.id, e.app_id, e.kind, e.name, e.repo_id, e.pr_number, e.current_snapshot_id, e.created_at, e.deleted_at,
+		r.full_name, r.slug
+		FROM envs e
+		LEFT JOIN repos r ON e.repo_id=r.id
+		WHERE e.kind='preview' AND e.repo_id=? AND e.pr_number=? AND e.deleted_at IS NULL
+		ORDER BY e.created_at DESC`, repoID, prNumber)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []Env
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var e Env
+		var repoIDNull sql.NullString
+		var pr sql.NullInt64
+		var cur sql.NullString
+		var createdAt string
+		var deletedAt sql.NullString
+		var repoFull sql.NullString
+		var repoSlug sql.NullString
+		if err := rows.Scan(&e.ID, &e.AppID, &e.Kind, &e.Name, &repoIDNull, &pr, &cur, &createdAt, &deletedAt, &repoFull, &repoSlug); err != nil {
 			return nil, err
 		}
-		e, err := s.GetEnvByID(ctx, id)
-		if err != nil {
-			return nil, err
+		if repoIDNull.Valid {
+			e.RepoID = &repoIDNull.String
 		}
-		out = append(out, *e)
+		if pr.Valid {
+			pp := int(pr.Int64)
+			e.PRNumber = &pp
+		}
+		if cur.Valid {
+			e.CurrentSnapshot = &cur.String
+		}
+		e.CreatedAt, _ = parseSQLiteTime(createdAt)
+		if deletedAt.Valid {
+			dt, _ := parseSQLiteTime(deletedAt.String)
+			e.DeletedAt = &dt
+		}
+		if repoFull.Valid {
+			e.RepoFullName = &repoFull.String
+		}
+		if repoSlug.Valid {
+			e.RepoSlug = &repoSlug.String
+		}
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }

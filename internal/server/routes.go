@@ -123,7 +123,9 @@ func apiTokenJSON(t *db.APIToken) map[string]any {
 	return out
 }
 
-func (s *Server) routes() http.Handler {
+// legacyRoutes is the original net/http mux router.
+// It is kept temporarily while migrating to Gin.
+func (s *Server) legacyRoutes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
