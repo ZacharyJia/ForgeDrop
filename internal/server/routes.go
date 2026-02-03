@@ -190,7 +190,10 @@ func (s *Server) serveSPA() http.Handler {
 
 		// SPA fallback.
 		r2 := r.Clone(r.Context())
-		r2.URL.Path = "/index.html"
+		// NOTE: net/http's FileServer redirects "/index.html" -> "./" ("/"),
+		// which breaks BrowserRouter deep-links (e.g. /apps/xxx) with redirect loops.
+		// Serving the directory path lets FileServer return the index file with 200.
+		r2.URL.Path = "/"
 		if !s.opts.Dev {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
