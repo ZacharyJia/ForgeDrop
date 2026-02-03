@@ -450,7 +450,7 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 			}
 			services, _ := s.store.ListServicesByApp(r.Context(), appID)
 			envs, _ := s.store.ListEnvsByApp(r.Context(), appID)
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": app.ID, "app_key": app.AppKey, "name": app.Name, "services": services, "envs": envs})
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"app": app, "services": services, "envs": envs})
 			return
 		case "DELETE":
 			if err := s.store.DeleteApp(r.Context(), appID); err != nil {

@@ -111,7 +111,7 @@ export function AppsPage() {
             <div className="app-card-body">
               <div className="app-key">{app.app_key}</div>
               <div className="app-meta">
-                Created: {new Date(app.created_at).toLocaleDateString()}
+                Created: {app.created_at ? new Date(app.created_at).toLocaleDateString() : 'N/A'}
               </div>
             </div>
             <Link to={`/apps/${app.id}`} className="app-card-link">
