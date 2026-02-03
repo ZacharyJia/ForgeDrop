@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import { BrowserRouter, Routes, Route, Link, Navigate, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type User } from "../api";
+import { api } from "../api";
 
 // Pages
 import { Dashboard } from "./pages/Dashboard";
@@ -25,7 +25,7 @@ const queryClient = new QueryClient({
 function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: user } = useQuery({
+  const meQuery = useQuery({
     queryKey: ["me"],
     queryFn: api.getMe,
   });
@@ -38,9 +38,15 @@ function Layout({ children }: { children: React.ReactNode }) {
     },
   });
 
-  if (!user) {
-    return <Navigate to="/login" />;
+  if (meQuery.isPending) {
+    return <div className="loading">Loading...</div>;
   }
+
+  if (meQuery.isError || !meQuery.data) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const user = meQuery.data;
 
   return (
     <div className="layout">
