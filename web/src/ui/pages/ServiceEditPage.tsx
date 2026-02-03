@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, type Service } from "../../api";
+import CodeMirror from "@uiw/react-codemirror";
+import { yaml } from "@codemirror/lang-yaml";
 
 export function ServiceEditPage() {
   const { serviceId } = useParams<{ serviceId: string }>();
@@ -25,15 +27,24 @@ export function ServiceEditPage() {
 
   useEffect(() => {
     if (data?.service) {
-      setFormData(data.service);
+      // Compose-only mode
+      setFormData({ ...data.service, use_compose: true });
     }
   }, [data]);
 
   const updateMutation = useMutation({
-    mutationFn: () => api.updateService(serviceId!, formData),
+    mutationFn: () =>
+      api.updateService(serviceId!, {
+        name: formData.name,
+        enabled: formData.enabled,
+        compose_template: formData.compose_template,
+        prod_host: formData.prod_host,
+        traefik_entrypoints: formData.traefik_entrypoints,
+        container_port: formData.container_port,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["service", serviceId] });
-      alert("Service updated successfully!");
+      alert("服务已更新");
     },
   });
 
@@ -87,120 +98,62 @@ export function ServiceEditPage() {
           </div>
         </div>
 
+
         <div className="form-section">
-          <h2>部署模式</h2>
+          <h2>Docker Compose 模板</h2>
           
           <div className="form-group">
-            <label className="radio-label">
-              <input
-                type="radio"
-                checked={!formData.use_compose}
-                onChange={() => setFormData({ ...formData, use_compose: false })}
-              />
-              {" "}Docker API（手动配置）
-            </label>
-            <p className="help-text">
-              手动配置容器参数，适合简单的单容器服务。
-            </p>
-          </div>
+            <div className="label-with-action">
+              <label>Compose 模板（Go template 语法）</label>
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => setShowExample(!showExample)}
+              >
+                {showExample ? "隐藏" : "查看"} 示例
+              </button>
+            </div>
+            
+            {showExample && templateExample && (
+              <div className="example-box">
+                <pre>{templateExample.example}</pre>
+              </div>
+            )}
 
-          <div className="form-group">
-            <label className="radio-label">
-              <input
-                type="radio"
-                checked={formData.use_compose ?? false}
-                onChange={() => setFormData({ ...formData, use_compose: true })}
-              />
-              {" "}Docker Compose（模板）
-            </label>
+            <CodeMirror
+              value={formData.compose_template || ""}
+              height="520px"
+              extensions={[yaml()]}
+              onChange={(value) => setFormData({ ...formData, compose_template: value })}
+              basicSetup={{
+                lineNumbers: true,
+                foldGutter: true,
+                highlightActiveLine: true,
+              }}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "0.375rem",
+                overflow: "hidden",
+              }}
+            />
             <p className="help-text">
-              使用 Docker Compose 模板获得完全控制能力：支持多容器、资源限制、健康检查等 Compose 特性。
+              支持 YAML + Go template。你可以使用变量 {`{{.Artifacts}}`}、{`{{.SlotPaths}}`}、{`{{.Host}}`}、{`{{.EnvName}}`} 等。
             </p>
           </div>
         </div>
 
-        {!formData.use_compose ? (
-          <div className="form-section">
-            <h2>Docker API 配置</h2>
-            
-            <div className="form-group">
-              <label>镜像</label>
-              <input
-                type="text"
-                value={formData.image || ""}
-                onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                placeholder="eclipse-temurin:17-jre"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>启动命令</label>
-              <input
-                type="text"
-                value={formData.command || ""}
-                onChange={(e) => setFormData({ ...formData, command: e.target.value })}
-                placeholder="java -jar /app/app.jar"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>容器端口</label>
-              <input
-                type="number"
-                value={formData.container_port || 8080}
-                onChange={(e) => setFormData({ ...formData, container_port: parseInt(e.target.value) })}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>运行用户（UID:GID）</label>
-              <input
-                type="text"
-                value={formData.run_user || ""}
-                onChange={(e) => setFormData({ ...formData, run_user: e.target.value })}
-                placeholder="1000:1000"
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="form-section">
-            <h2>Docker Compose 模板</h2>
-            
-            <div className="form-group">
-              <div className="label-with-action">
-                <label>Compose 模板（Go template 语法）</label>
-                <button
-                  type="button"
-                  className="btn-link"
-                  onClick={() => setShowExample(!showExample)}
-                >
-                  {showExample ? "隐藏" : "查看"} 示例
-                </button>
-              </div>
-              
-              {showExample && templateExample && (
-                <div className="example-box">
-                  <pre>{templateExample.example}</pre>
-                </div>
-              )}
-
-              <textarea
-                value={formData.compose_template || ""}
-                onChange={(e) => setFormData({ ...formData, compose_template: e.target.value })}
-                rows={20}
-                placeholder="services:\n  app:\n    image: your-image\n    ..."
-                className="code-textarea"
-              />
-              <p className="help-text">
-                使用 Go template 语法，可使用变量如 {`{{.Artifacts}}`}、{`{{.Host}}`}、{`{{.EnvName}}`} 等。
-                变量列表可查看上方示例。
-              </p>
-            </div>
-          </div>
-        )}
-
         <div className="form-section">
           <h2>路由配置</h2>
+
+          <div className="form-group">
+            <label>服务端口（供模板变量 .Port 使用）</label>
+            <input
+              type="number"
+              value={formData.container_port || 8080}
+              onChange={(e) => setFormData({ ...formData, container_port: parseInt(e.target.value) })}
+            />
+            <p className="help-text">一般是容器内部服务监听端口（例如 8080）。</p>
+          </div>
           
           <div className="form-group">
             <label>生产域名（可选）</label>
@@ -220,7 +173,7 @@ export function ServiceEditPage() {
               value={formData.traefik_entrypoints || "websecure"}
               onChange={(e) => setFormData({ ...formData, traefik_entrypoints: e.target.value })}
             />
-            <p className="help-text">用逗号分隔（例如："web,websecure"）。</p>
+            <p className="help-text">用逗号分隔（例如："web,websecure"）。该值会作为模板变量 .EntryPoints。</p>
           </div>
         </div>
 

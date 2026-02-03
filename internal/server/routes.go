@@ -723,15 +723,11 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 		case "PUT":
 			var req struct {
 				Name             string            `json:"name"`
-				Image            string            `json:"image"`
-				Command          string            `json:"command"`
 				ContainerPort    int               `json:"container_port"`
-				RunUser          string            `json:"run_user"`
 				Env              map[string]string `json:"env"`
 				ProdHost         string            `json:"prod_host"`
 				TraefikEntrypnts string            `json:"traefik_entrypoints"`
 				ComposeTemplate  string            `json:"compose_template"`
-				UseCompose       bool              `json:"use_compose"`
 				Enabled          bool              `json:"enabled"`
 			}
 			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
@@ -747,17 +743,8 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 			if req.Name != "" {
 				patch.Name = req.Name
 			}
-			if req.Image != "" {
-				patch.Image = req.Image
-			}
-			if req.Command != "" {
-				patch.Command = req.Command
-			}
 			if req.ContainerPort != 0 {
 				patch.ContainerPort = req.ContainerPort
-			}
-			if req.RunUser != "" {
-				patch.RunUser = req.RunUser
 			}
 			if req.Env != nil {
 				patch.Env = req.Env
@@ -767,7 +754,7 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 				patch.TraefikEntrypnts = req.TraefikEntrypnts
 			}
 			patch.ComposeTemplate = req.ComposeTemplate
-			patch.UseCompose = req.UseCompose
+			patch.UseCompose = true
 			patch.Enabled = req.Enabled
 			updated, err := s.store.UpdateService(r.Context(), serviceID, patch)
 			if err != nil {
@@ -1456,14 +1443,16 @@ func (s *Server) handleComposeTemplateExample(w http.ResponseWriter, r *http.Req
 	example := `services:
   app:
     image: eclipse-temurin:17-jre
-    command: java -jar /app/app.jar
+    command: sh -lc "java -jar /app/app.jar"
     volumes:
-      - {{index .Artifacts "main"}}:/app/app.jar:ro
+      {{- range $slotKey, $hostPath := .Artifacts }}
+      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}:ro
+      {{- end }}
     environment:
       SPRING_PROFILES_ACTIVE: {{.EnvName}}
-      {{range $key, $value := .Env}}
+      {{- range $key, $value := .Env }}
       {{$key}}: {{$value}}
-      {{end}}
+      {{- end }}
     labels:
       - traefik.enable=true
       - traefik.http.routers.{{.RouterName}}.rule=Host(` + "`{{.Host}}`" + `)
@@ -1473,7 +1462,6 @@ func (s *Server) handleComposeTemplateExample(w http.ResponseWriter, r *http.Req
     networks:
       - {{.Network}}
     restart: unless-stopped
-    user: "1000:1000"
 
 networks:
   {{.Network}}:
@@ -1483,7 +1471,8 @@ networks:
 # .ServiceID, .ServiceKey, .ServiceName - Service info
 # .EnvID, .EnvName, .EnvKind - Environment info (prod/staging/preview)
 # .AppID, .AppKey - Application info
-# .Artifacts - Map of slot_key -> artifact_path (e.g., {{index .Artifacts "main"}})
+# .Artifacts - Map of slot_key -> artifact_path
+# .SlotPaths - Map of slot_key -> container_path (from slot config)
 # .Host - Resolved hostname for this service
 # .RouterName - Traefik router name
 # .TraefikService - Traefik service name

@@ -13,7 +13,6 @@ import (
 
 	"forge-drop/internal/db"
 	"forge-drop/internal/deploy"
-	"forge-drop/internal/dockerx"
 )
 
 type Options struct {
@@ -68,14 +67,9 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 
-	dockerClient, err := dockerx.New()
-	if err != nil {
-		opts.Logger.Printf("warning: docker unavailable (%v); continuing with docker disabled", err)
-	}
 	deployer := deploy.New(deploy.Options{
 		DataDir: opts.DataDir,
 		Store:   store,
-		Docker:  dockerClient,
 		Logger:  opts.Logger,
 	})
 

@@ -31,6 +31,8 @@ type TemplateData struct {
 
 	// Artifacts (map of slot_key -> artifact_path)
 	Artifacts map[string]string
+	// SlotPaths (map of slot_key -> container_path)
+	SlotPaths map[string]string
 
 	// Network and routing
 	Host           string
@@ -176,6 +178,7 @@ func BuildTemplateData(
 	env *db.Env,
 	app *db.App,
 	artifacts map[string]string,
+	slotPaths map[string]string,
 	host string,
 	network string,
 	baseDomain string,
@@ -199,6 +202,7 @@ func BuildTemplateData(
 		AppID:          app.ID,
 		AppKey:         app.AppKey,
 		Artifacts:      artifacts,
+		SlotPaths:      slotPaths,
 		Host:           host,
 		RouterName:     routerName,
 		TraefikService: serviceName,

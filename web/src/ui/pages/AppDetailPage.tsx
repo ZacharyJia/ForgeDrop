@@ -74,7 +74,7 @@ export function AppDetailPage() {
         <div className="section-header">
           <h2>服务</h2>
           <p className="section-desc">
-            配置该应用的服务（容器）。每个服务可选择 Docker Compose 模板或 Docker API（手动）模式。
+            配置该应用的服务（容器）。当前仅支持 Docker Compose 模板部署。
           </p>
         </div>
 
@@ -106,12 +106,7 @@ export function AppDetailPage() {
                       <div className="service-key">{service.service_key}</div>
                     </div>
                     <div className="service-badges">
-                      {service.use_compose && (
-                        <span className="badge badge-compose">Docker Compose</span>
-                      )}
-                      {!service.use_compose && (
-                        <span className="badge badge-docker">Docker API</span>
-                      )}
+                      <span className="badge badge-compose">Docker Compose</span>
                       {service.enabled ? (
                         <span className="badge badge-enabled">已启用</span>
                       ) : (
@@ -121,27 +116,14 @@ export function AppDetailPage() {
                   </div>
 
                   <div className="service-body">
-                    {service.use_compose ? (
-                      <div className="service-info">
-                        <div className="info-item">
-                          <strong>模式：</strong> Docker Compose
-                        </div>
-                        <div className="info-item">
-                          <strong>模板：</strong> {service.compose_template ? "已配置" : "未设置"}
-                        </div>
+                    <div className="service-info">
+                      <div className="info-item">
+                        <strong>模板：</strong> {service.compose_template ? "已配置" : "未设置"}
                       </div>
-                    ) : (
-                      <div className="service-info">
-                        <div className="info-item">
-                          <strong>镜像：</strong> {service.image}
-                        </div>
-                        <div className="info-item">
-                          <strong>端口：</strong> {service.container_port}</div>
-                        <div className="info-item">
-                          <strong>启动命令：</strong> <code>{service.command}</code>
-                        </div>
+                      <div className="info-item">
+                        <strong>端口：</strong> {service.container_port}
                       </div>
-                    )}
+                    </div>
 
                     {service.prod_host && (
                       <div className="info-item">

@@ -578,13 +578,38 @@ func (s *Store) CreateService(ctx context.Context, appID, serviceKey, name, imag
 	if runUser == "" {
 		runUser = "1000:1000"
 	}
+	entrypoints := "websecure"
+	composeTemplate := strings.TrimSpace(`services:
+  app:
+    image: eclipse-temurin:17-jre
+    command: sh -lc "java -jar /app/app.jar"
+    volumes:
+      {{- range $slotKey, $hostPath := .Artifacts }}
+      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}:ro
+      {{- end }}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.{{.RouterName}}.rule=Host(` + "`{{.Host}}`" + `)
+      - traefik.http.routers.{{.RouterName}}.entrypoints={{.EntryPoints}}
+      - traefik.http.routers.{{.RouterName}}.tls=true
+      - traefik.http.services.{{.TraefikService}}.loadbalancer.server.port={{.Port}}
+    networks:
+      - {{.Network}}
+    restart: unless-stopped
+
+networks:
+  {{.Network}}:
+    external: true
+`)
 	envJSON, err := json.Marshal(env)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := s.sql.ExecContext(ctx, `INSERT INTO services(id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, appID, serviceKey, name, image, command, containerPort, runUser, string(envJSON), prodHost, now, now); err != nil {
+	if _, err := s.sql.ExecContext(ctx, `INSERT INTO services(
+		id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, use_compose, enabled, created_at, updated_at
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, appID, serviceKey, name, image, command, containerPort, runUser, string(envJSON), prodHost, entrypoints, composeTemplate, 1, 1, now, now); err != nil {
 		return nil, err
 	}
 	return s.GetServiceByID(ctx, id)
@@ -595,10 +620,11 @@ func (s *Store) UpdateService(ctx context.Context, serviceID string, patch Servi
 	if err != nil {
 		return nil, err
 	}
+	// Compose-only: keep use_compose always true.
 	res, err := s.sql.ExecContext(ctx, `UPDATE services
-		SET name=?, image=?, command=?, container_port=?, run_user=?, env_json=?, prod_host=?, traefik_entrypoints=?, compose_template=?, use_compose=?, enabled=?, revision=revision+1, updated_at=datetime('now')
+		SET name=?, image=?, command=?, container_port=?, run_user=?, env_json=?, prod_host=?, traefik_entrypoints=?, compose_template=?, use_compose=1, enabled=?, revision=revision+1, updated_at=datetime('now')
 		WHERE id=?`,
-		patch.Name, patch.Image, patch.Command, patch.ContainerPort, patch.RunUser, string(envJSON), patch.ProdHost, patch.TraefikEntrypnts, patch.ComposeTemplate, boolToInt(patch.UseCompose), boolToInt(patch.Enabled), serviceID)
+		patch.Name, patch.Image, patch.Command, patch.ContainerPort, patch.RunUser, string(envJSON), patch.ProdHost, patch.TraefikEntrypnts, patch.ComposeTemplate, boolToInt(patch.Enabled), serviceID)
 	if err != nil {
 		return nil, err
 	}
