@@ -896,7 +896,38 @@ type UploadParams struct {
 	SHA256Hex  string
 	StoredPath string
 	TokenID    *string
+	UserID     *string
 	Note       string
+}
+
+type UploadBatchEntry struct {
+	ArtifactID string
+	SlotID     string
+	RepoID     string
+	SHA        string
+	Ref        string
+	PRNumber   *int
+	Filename   string
+	SizeBytes  int64
+	SHA256Hex  string
+	StoredPath string
+}
+
+type UploadBatchParams struct {
+	AppID     string
+	ServiceID string
+	EnvID     string
+	Entries   []UploadBatchEntry
+	TokenID   *string
+	UserID    *string
+	Note      string
+}
+
+type UploadBatchResult struct {
+	SnapshotID  string
+	EnvID       string
+	PrevSnapID  *string
+	ArtifactIDs []string
 }
 
 type UploadResult struct {
@@ -937,8 +968,8 @@ func (s *Store) CreateArtifactAndSnapshot(ctx context.Context, p UploadParams) (
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO snapshots(id, env_id, created_at, created_by_token_id, note)
-		VALUES(?, ?, datetime('now'), ?, ?)`, snapshotID, p.EnvID, nullableString(p.TokenID), p.Note); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO snapshots(id, env_id, created_at, created_by_user_id, created_by_token_id, note)
+		VALUES(?, ?, datetime('now'), ?, ?, ?)`, snapshotID, p.EnvID, nullableString(p.UserID), nullableString(p.TokenID), p.Note); err != nil {
 		return nil, err
 	}
 
@@ -975,6 +1006,85 @@ func (s *Store) CreateArtifactAndSnapshot(ctx context.Context, p UploadParams) (
 		NowSnapID:  snapshotID,
 		SHA256Hex:  p.SHA256Hex,
 		StoredPath: p.StoredPath,
+	}, nil
+}
+
+func (s *Store) CreateArtifactsAndSnapshotBatch(ctx context.Context, p UploadBatchParams) (*UploadBatchResult, error) {
+	if len(p.Entries) == 0 {
+		return nil, fmt.Errorf("entries required")
+	}
+
+	tx, err := s.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	for _, e := range p.Entries {
+		artifactID := strings.TrimSpace(e.ArtifactID)
+		if artifactID == "" {
+			return nil, fmt.Errorf("artifact_id required")
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO artifacts(
+			id, app_id, service_id, slot_id, repo_id, sha, ref, pr_number, original_filename, size_bytes, sha256_hex, stored_path, created_at
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))`,
+			artifactID, p.AppID, p.ServiceID, e.SlotID, e.RepoID, e.SHA, e.Ref, nullableInt(e.PRNumber), e.Filename, e.SizeBytes, e.SHA256Hex, e.StoredPath); err != nil {
+			return nil, err
+		}
+	}
+
+	var prevSnapshot sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT current_snapshot_id FROM envs WHERE id=?`, p.EnvID).Scan(&prevSnapshot); err != nil {
+		return nil, err
+	}
+
+	snapshotID, err := ids.New()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO snapshots(id, env_id, created_at, created_by_user_id, created_by_token_id, note)
+		VALUES(?, ?, datetime('now'), ?, ?, ?)`, snapshotID, p.EnvID, nullableString(p.UserID), nullableString(p.TokenID), p.Note); err != nil {
+		return nil, err
+	}
+
+	if prevSnapshot.Valid {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO snapshot_slots(snapshot_id, slot_id, artifact_id)
+			SELECT ?, slot_id, artifact_id FROM snapshot_slots WHERE snapshot_id=?`, snapshotID, prevSnapshot.String); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, e := range p.Entries {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO snapshot_slots(snapshot_id, slot_id, artifact_id)
+			VALUES(?,?,?)
+			ON CONFLICT(snapshot_id, slot_id) DO UPDATE SET artifact_id=excluded.artifact_id`, snapshotID, e.SlotID, e.ArtifactID); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `UPDATE envs SET current_snapshot_id=? WHERE id=?`, snapshotID, p.EnvID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	var prev *string
+	if prevSnapshot.Valid {
+		prev = &prevSnapshot.String
+	}
+
+	artifactIDs := make([]string, 0, len(p.Entries))
+	for _, e := range p.Entries {
+		artifactIDs = append(artifactIDs, e.ArtifactID)
+	}
+
+	return &UploadBatchResult{
+		SnapshotID:  snapshotID,
+		EnvID:       p.EnvID,
+		PrevSnapID:  prev,
+		ArtifactIDs: artifactIDs,
 	}, nil
 }
 

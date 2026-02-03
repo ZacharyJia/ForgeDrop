@@ -32,6 +32,26 @@ export interface Service {
   updated_at: string;
 }
 
+export interface Env {
+  id: string;
+  app_id: string;
+  kind: string;
+  name: string;
+  created_at: string;
+  current_snapshot_id?: string | null;
+}
+
+export interface Slot {
+  id: string;
+  service_id: string;
+  slot_key: string;
+  name: string;
+  repo_id: string;
+  container_path: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Repo {
   id: string;
   full_name: string;
@@ -112,8 +132,31 @@ export const api = {
     });
   },
 
-  async getApp(appId: string): Promise<{ app: App; services: Service[]; envs: any[] }> {
+  async getApp(appId: string): Promise<{ app: App; services: Service[]; envs: Env[] }> {
     return apiFetch(`/api/v1/admin/apps/${appId}`);
+  },
+
+  async createService(appId: string, payload: {
+    service_key: string;
+    name: string;
+    image?: string;
+    command?: string;
+    container_port?: number;
+    run_user?: string;
+    env?: Record<string, string>;
+    prod_host?: string;
+  }): Promise<Service> {
+    return apiFetch(`/api/v1/admin/apps/${appId}/services`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async createEnv(appId: string, name: string): Promise<Env> {
+    return apiFetch(`/api/v1/admin/apps/${appId}/envs`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
   },
 
   async deleteApp(appId: string): Promise<void> {
@@ -121,8 +164,37 @@ export const api = {
   },
 
   // Services
-  async getService(serviceId: string): Promise<{ service: Service; slots: any[] }> {
+  async getService(serviceId: string): Promise<{ service: Service; slots: Slot[] }> {
     return apiFetch(`/api/v1/admin/services/${serviceId}`);
+  },
+
+  async createSlot(serviceId: string, payload: {
+    slot_key: string;
+    name: string;
+    repo_id: string;
+    container_path: string;
+  }): Promise<Slot> {
+    return apiFetch(`/api/v1/admin/services/${serviceId}/slots`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteSlot(serviceId: string, slotId: string): Promise<void> {
+    await apiFetch(`/api/v1/admin/services/${serviceId}/slots/${slotId}`, { method: 'DELETE' });
+  },
+
+  async uploadArtifactsBatch(serviceId: string, formData: FormData): Promise<any> {
+    // Must send cookies; Content-Type is set by the browser for multipart
+    const res = await fetch(`/api/v1/admin/services/${serviceId}/artifacts/upload-batch`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: formData,
+    });
+    const txt = await res.text();
+    const data = txt ? JSON.parse(txt) : null;
+    if (!res.ok) throw new Error(data?.error || `${res.status} ${res.statusText}`);
+    return data;
   },
 
   async updateService(serviceId: string, data: Partial<Service>): Promise<Service> {

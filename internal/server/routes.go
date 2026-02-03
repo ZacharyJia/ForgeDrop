@@ -685,7 +685,7 @@ func (s *Server) handleAdminAppEnvs(w http.ResponseWriter, r *http.Request, appI
 				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusCreated, env)
+			httpx.WriteJSON(w, http.StatusCreated, envJSON(env))
 			return
 		default:
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -791,6 +791,10 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 		s.handleAdminSlots(w, r, serviceID, parts[2:])
 		return
 	}
+	if len(parts) >= 2 && parts[1] == "artifacts" {
+		s.handleAdminServiceArtifacts(w, r, serviceID, parts[2:])
+		return
+	}
 	if len(parts) >= 2 && parts[1] == "status" {
 		s.handleServiceStatus(w, r, serviceID)
 		return
@@ -806,6 +810,19 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 	httpx.WriteError(w, http.StatusNotFound, "not found")
 }
 
+func (s *Server) handleAdminServiceArtifacts(w http.ResponseWriter, r *http.Request, serviceID string, rest []string) {
+	// /services/{serviceID}/artifacts/upload-batch
+	if len(rest) == 1 && rest[0] == "upload-batch" {
+		if r.Method != "POST" {
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.handleAdminServiceArtifactUploadBatch(w, r, serviceID)
+		return
+	}
+	httpx.WriteError(w, http.StatusNotFound, "not found")
+}
+
 func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, serviceID string, rest []string) {
 	if len(rest) == 0 {
 		switch r.Method {
@@ -815,7 +832,11 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 				httpx.WriteError(w, http.StatusInternalServerError, "db error")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusOK, slots)
+			out := make([]map[string]any, 0, len(slots))
+			for _, sl := range slots {
+				out = append(out, slotJSON(sl))
+			}
+			httpx.WriteJSON(w, http.StatusOK, out)
 			return
 		case "POST":
 			var req struct {
@@ -839,7 +860,7 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusCreated, slot)
+			httpx.WriteJSON(w, http.StatusCreated, slotJSON(*slot))
 			return
 		default:
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -880,7 +901,7 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, updated)
+		httpx.WriteJSON(w, http.StatusOK, slotJSON(*updated))
 		return
 	case "DELETE":
 		if err := s.store.DeleteSlot(r.Context(), slotID); err != nil {
@@ -1088,6 +1109,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		SHA256Hex:  sha256Hex,
 		StoredPath: dstPath,
 		TokenID:    tokenID,
+		UserID:     nil,
 		Note:       note,
 	})
 	if err != nil {
@@ -1156,6 +1178,154 @@ func sanitizeFilename(name string) string {
 	}
 	name = strings.ReplaceAll(name, string(os.PathSeparator), "_")
 	return name
+}
+
+func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r *http.Request, serviceID string) {
+	// Admin-only (session) batch upload for a single service.
+	// Form fields:
+	// - env_id: target env id (named env)
+	// - sha/ref (optional)
+	// - file_<slotID>: file for a given slot
+	if err := r.ParseMultipartForm(512 << 20); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid multipart")
+		return
+	}
+	envID := strings.TrimSpace(r.FormValue("env_id"))
+	sha := strings.TrimSpace(r.FormValue("sha"))
+	ref := strings.TrimSpace(r.FormValue("ref"))
+	if envID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
+		return
+	}
+
+	uid := userIDFromContext(r.Context())
+	if uid == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "missing session")
+		return
+	}
+
+	svc, err := s.store.GetServiceByID(r.Context(), serviceID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, "unknown service")
+		return
+	}
+	env, err := s.store.GetEnvByID(r.Context(), envID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "unknown env")
+		return
+	}
+	if env.AppID != svc.AppID {
+		httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
+		return
+	}
+	if env.Kind != "named" {
+		httpx.WriteError(w, http.StatusBadRequest, "only named env supported for manual upload")
+		return
+	}
+
+	slots, err := s.store.ListSlotsByService(r.Context(), serviceID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	slotByID := make(map[string]db.Slot, len(slots))
+	for _, sl := range slots {
+		slotByID[sl.ID] = sl
+	}
+
+	files := r.MultipartForm.File
+	var entries []db.UploadBatchEntry
+	for field, fhs := range files {
+		if !strings.HasPrefix(field, "file_") {
+			continue
+		}
+		slotID := strings.TrimPrefix(field, "file_")
+		sl, ok := slotByID[slotID]
+		if !ok {
+			httpx.WriteError(w, http.StatusBadRequest, "unknown slot_id in upload: "+slotID)
+			return
+		}
+		if len(fhs) == 0 {
+			continue
+		}
+		h := fhs[0]
+		file, err := h.Open()
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "open file failed")
+			return
+		}
+		defer httpx.DrainAndClose(file)
+
+		artifactID, err := ids.New()
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "id failed")
+			return
+		}
+		artifactDir := filepath.Join(s.opts.DataDir, "artifacts", artifactID)
+		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "store failed")
+			return
+		}
+		filename := sanitizeFilename(h.Filename)
+		dstPath := filepath.Join(artifactDir, filename)
+		sha256Hex, sizeBytes, err := writeFileAndSHA256(dstPath, file)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+			return
+		}
+
+		entries = append(entries, db.UploadBatchEntry{
+			ArtifactID: artifactID,
+			SlotID:     sl.ID,
+			RepoID:     sl.RepoID,
+			SHA:        sha,
+			Ref:        ref,
+			PRNumber:   nil,
+			Filename:   filename,
+			SizeBytes:  sizeBytes,
+			SHA256Hex:  sha256Hex,
+			StoredPath: dstPath,
+		})
+	}
+
+	if len(entries) == 0 {
+		httpx.WriteError(w, http.StatusBadRequest, "no files uploaded")
+		return
+	}
+
+	note := "manual upload"
+	if sha != "" {
+		note = "manual upload sha=" + sha
+	}
+
+	res, err := s.store.CreateArtifactsAndSnapshotBatch(r.Context(), db.UploadBatchParams{
+		AppID:     svc.AppID,
+		ServiceID: svc.ID,
+		EnvID:     env.ID,
+		Entries:   entries,
+		UserID:    uid,
+		TokenID:   nil,
+		Note:      note,
+	})
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "db write failed: "+err.Error())
+		return
+	}
+
+	if err := s.deployer.ApplyService(r.Context(), env.ID, svc.ID); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+		return
+	}
+
+	url, _ := s.deployer.ServiceURL(r.Context(), env.ID, svc.ID)
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
+		"ok":           true,
+		"env_id":       env.ID,
+		"service_id":   svc.ID,
+		"snapshot_id":  res.SnapshotID,
+		"artifact_ids": res.ArtifactIDs,
+		"service_url":  url,
+	})
 }
 
 func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request, serviceID string) {
