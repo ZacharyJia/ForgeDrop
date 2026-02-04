@@ -12,3 +12,7 @@ data/
 # Frontend (optional)
 web/node_modules/
 web/.vite/
+
+# Built UI (embedded into the Go binary)
+web/dist/*
+!web/dist/.keep

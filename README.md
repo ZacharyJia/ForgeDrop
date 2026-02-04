@@ -14,7 +14,7 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
    - 首次启动会进入 **Setup** 页面创建 admin 账号（只允许一次）。
    - 若本机没有 Docker（或不想连接 Docker），可设置：`FORGE_DROP_NO_DOCKER=1`
 
-> 管理台 UI 默认直接使用仓库内提交的 `web/dist`（无需 Node）。后续如果你要把 UI 扩展成完整后台，可在 `web/` 下用 React+Vite 构建并覆盖 `web/dist`。
+> 管理台 UI 由 `web/` 构建产出到 `web/dist`，并在 Go 二进制中 embed（无需额外 UI 服务）。建议使用 `scripts/build.sh --install` 一次性构建前后端。
 
 ## 与 Traefik 配合（推荐）
 

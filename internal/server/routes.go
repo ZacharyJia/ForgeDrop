@@ -180,6 +180,40 @@ func (s *Server) serveSPA() http.Handler {
 			http.Error(w, "web ui missing", http.StatusInternalServerError)
 		})
 	}
+	// If the embed only contains a placeholder (e.g. web/dist/.keep), show a
+	// helpful message instead of a confusing 404.
+	if f, err := sub.Open("index.html"); err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>forge-drop UI not built</title>
+    <style>
+      body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; padding: 24px; line-height: 1.5; }
+      code, pre { background: #f6f8fa; padding: 2px 6px; border-radius: 6px; }
+      pre { padding: 12px; overflow: auto; }
+      .muted { color: #666; }
+    </style>
+  </head>
+  <body>
+    <h1>Web UI is not built</h1>
+    <p class="muted">This binary was built without bundled web assets.</p>
+    <p>To build the embedded UI, run:</p>
+    <pre><code>npm --prefix web install
+npm --prefix web run build
+go build ./cmd/forge-drop</code></pre>
+    <p>Or use the helper script:</p>
+    <pre><code>scripts/build.sh --install</code></pre>
+  </body>
+</html>`))
+		})
+	} else {
+		_ = f.Close()
+	}
 	fileServer := http.FileServer(http.FS(sub))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
