@@ -676,11 +676,21 @@ pre {
 .toast-info { border-left: 4px solid var(--primary); }
 
 /* Docs */
+.docs-page {
+  max-width: 1180px;
+}
+
 .docs-grid {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
+  justify-content: center;
   gap: 1.5rem;
   align-items: start;
+}
+
+.doc-content {
+  min-width: 0;
+  max-width: 920px;
 }
 
 .doc-toc {
@@ -690,6 +700,8 @@ pre {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 1rem;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
 }
 
 .doc-toc-title {
@@ -727,8 +739,14 @@ pre {
 }
 
 @media (max-width: 980px) {
+  .docs-page {
+    max-width: none;
+  }
   .docs-grid {
     grid-template-columns: 1fr;
+  }
+  .doc-content {
+    max-width: none;
   }
   .doc-toc {
     position: static;
