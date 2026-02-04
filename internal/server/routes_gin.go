@@ -127,6 +127,8 @@ func (s *Server) routes() http.Handler {
 	admin.PUT("/services/:serviceID", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")) })
 	admin.DELETE("/services/:serviceID", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")) })
 	admin.GET("/services/:serviceID/status", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")+"/status") })
+	admin.GET("/services/:serviceID/logs", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")+"/logs") })
+	admin.POST("/services/:serviceID/deploy", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")+"/deploy") })
 	admin.POST("/services/:serviceID/redeploy", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")+"/redeploy") })
 	admin.GET("/services/:serviceID/compose-template-example", func(c *gin.Context) {
 		s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")+"/compose-template-example")

@@ -242,13 +242,83 @@ func (d *Deployer) ServiceURL(ctx context.Context, envID, serviceID string) (str
 	return "https://" + host, true
 }
 
-func (d *Deployer) ServiceStatus(ctx context.Context, serviceID string) (map[string]any, error) {
-	// Compose-only: return useful metadata (best-effort).
-	// Runtime compose file is per env+service, so this endpoint is informational only.
-	return map[string]any{
-		"mode": "compose",
-		"note": "status is environment-scoped; use env-specific redeploy and compose logs/ps",
-	}, nil
+func (d *Deployer) ServiceStatus(ctx context.Context, envID, serviceID string) (map[string]any, error) {
+	svc, err := d.store.GetServiceByID(ctx, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{
+		"mode":        "compose",
+		"env_id":      envID,
+		"service_id":  serviceID,
+		"service_key": svc.ServiceKey,
+	}
+	if strings.TrimSpace(envID) == "" {
+		out["note"] = "env_id required for environment-scoped status (compose ps/logs)"
+		return out, nil
+	}
+
+	env, err := d.store.GetEnvByID(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	if env.AppID != svc.AppID {
+		return nil, fmt.Errorf("env does not belong to this service's app")
+	}
+
+	curSnap, _ := d.store.GetEnvCurrentSnapshotID(ctx, envID)
+	out["desired_snapshot_id"] = curSnap
+
+	composeFile := d.composeManager.GetComposeFile(envID, serviceID)
+	projectName := d.composeManager.GetProjectName(envID, svc.ServiceKey)
+	out["compose_file"] = composeFile
+	out["project_name"] = projectName
+
+	if _, err := os.Stat(composeFile); err != nil {
+		if os.IsNotExist(err) {
+			out["deployed"] = false
+			out["note"] = "compose file not found; service may not have been deployed yet"
+			return out, nil
+		}
+		return nil, err
+	}
+	out["deployed"] = true
+
+	if ps, err := d.composeManager.Ps(ctx, envID, serviceID, svc.ServiceKey); err != nil {
+		out["ps_error"] = err.Error()
+	} else {
+		out["ps"] = ps
+	}
+
+	if url, ok := d.ServiceURL(ctx, envID, serviceID); ok {
+		out["service_url"] = url
+	}
+	return out, nil
+}
+
+func (d *Deployer) ServiceLogs(ctx context.Context, envID, serviceID string, tail int) (string, error) {
+	envID = strings.TrimSpace(envID)
+	if envID == "" {
+		return "", fmt.Errorf("env_id required")
+	}
+	if tail <= 0 {
+		tail = 200
+	}
+	if tail > 5000 {
+		tail = 5000
+	}
+	svc, err := d.store.GetServiceByID(ctx, serviceID)
+	if err != nil {
+		return "", err
+	}
+	env, err := d.store.GetEnvByID(ctx, envID)
+	if err != nil {
+		return "", err
+	}
+	if env.AppID != svc.AppID {
+		return "", fmt.Errorf("env does not belong to this service's app")
+	}
+	return d.composeManager.LogsOutput(ctx, envID, serviceID, svc.ServiceKey, tail)
 }
 
 func (d *Deployer) runtimeSlotFile(envID, serviceID, slotKey string) string {

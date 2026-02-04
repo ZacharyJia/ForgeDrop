@@ -40,6 +40,7 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 - `env`：`prod` / `staging` / `preview`
 - `repo`：`owner/name`（必须匹配 slot 绑定的 repo）
 - `pr_number`：当 `env=preview` 必填
+- `deploy`：可选，`1`（默认）表示上传后自动部署；`0` 表示仅创建快照并更新当前版本，等待手动部署
 - 文件字段：`artifact=@xxx.jar`
 
 示例（curl）：

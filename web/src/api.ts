@@ -168,6 +168,23 @@ export const api = {
     return apiFetch(`/api/v1/admin/services/${serviceId}`);
   },
 
+  async getServiceStatus(serviceId: string, envId: string): Promise<any> {
+    const q = new URLSearchParams({ env_id: envId });
+    return apiFetch(`/api/v1/admin/services/${serviceId}/status?${q.toString()}`);
+  },
+
+  async getServiceLogs(serviceId: string, envId: string, tail = 200): Promise<{ logs: string }> {
+    const q = new URLSearchParams({ env_id: envId, tail: String(tail) });
+    return apiFetch(`/api/v1/admin/services/${serviceId}/logs?${q.toString()}`);
+  },
+
+  async deployService(serviceId: string, envId: string): Promise<any> {
+    return apiFetch(`/api/v1/admin/services/${serviceId}/deploy`, {
+      method: 'POST',
+      body: JSON.stringify({ env_id: envId }),
+    });
+  },
+
   async createSlot(serviceId: string, payload: {
     slot_key: string;
     name: string;

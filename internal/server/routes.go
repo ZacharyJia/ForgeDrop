@@ -23,6 +23,19 @@ import (
 	webui "forge-drop/web"
 )
 
+func parseAutoDeployFlag(v string) bool {
+	// Default behavior is auto-deploy to keep existing CI/UI flows working.
+	v = strings.TrimSpace(strings.ToLower(v))
+	if v == "" {
+		return true
+	}
+	// Treat common falsy values as opt-out.
+	if v == "0" || v == "false" || v == "no" || v == "off" {
+		return false
+	}
+	return true
+}
+
 func appJSON(a *db.App) map[string]any {
 	if a == nil {
 		return nil
@@ -788,6 +801,14 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 		s.handleServiceStatus(w, r, serviceID)
 		return
 	}
+	if len(parts) >= 2 && parts[1] == "logs" {
+		s.handleServiceLogs(w, r, serviceID)
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "deploy" {
+		s.handleServiceDeploy(w, r, serviceID)
+		return
+	}
 	if len(parts) >= 2 && parts[1] == "redeploy" {
 		s.handleServiceRedeploy(w, r, serviceID)
 		return
@@ -982,6 +1003,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
+	autoDeploy := parseAutoDeployFlag(get("deploy"))
 	appKey := get("app")
 	envName := get("env")
 	serviceKey := get("service")
@@ -1106,26 +1128,32 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.deployer.ApplyService(r.Context(), envID, svc.ID); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
-		return
+	deployed := false
+	if autoDeploy {
+		if err := s.deployer.ApplyService(r.Context(), envID, svc.ID); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+			return
+		}
+		deployed = true
 	}
 
 	url, _ := s.deployer.ServiceURL(r.Context(), envID, svc.ID)
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
-		"artifact_id":  res.ArtifactID,
-		"snapshot_id":  res.SnapshotID,
-		"env_id":       envID,
-		"service_id":   svc.ID,
-		"service_url":  url,
-		"sha256_hex":   sha256Hex,
-		"stored_path":  dstPath,
-		"repo":         repo.FullName,
-		"app":          app.AppKey,
-		"env":          envName,
-		"service":      svc.ServiceKey,
-		"slot":         slot.SlotKey,
-		"container_id": nil,
+		"artifact_id":    res.ArtifactID,
+		"snapshot_id":    res.SnapshotID,
+		"env_id":         envID,
+		"service_id":     svc.ID,
+		"service_url":    url,
+		"deployed":       deployed,
+		"deploy_skipped": !deployed,
+		"sha256_hex":     sha256Hex,
+		"stored_path":    dstPath,
+		"repo":           repo.FullName,
+		"app":            app.AppKey,
+		"env":            envName,
+		"service":        svc.ServiceKey,
+		"slot":           slot.SlotKey,
+		"container_id":   nil,
 	})
 }
 
@@ -1179,6 +1207,7 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		httpx.WriteError(w, http.StatusBadRequest, "invalid multipart")
 		return
 	}
+	autoDeploy := parseAutoDeployFlag(strings.TrimSpace(r.FormValue("deploy")))
 	envID := strings.TrimSpace(r.FormValue("env_id"))
 	sha := strings.TrimSpace(r.FormValue("sha"))
 	ref := strings.TrimSpace(r.FormValue("ref"))
@@ -1301,19 +1330,25 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		return
 	}
 
-	if err := s.deployer.ApplyService(r.Context(), env.ID, svc.ID); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
-		return
+	deployed := false
+	if autoDeploy {
+		if err := s.deployer.ApplyService(r.Context(), env.ID, svc.ID); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+			return
+		}
+		deployed = true
 	}
 
 	url, _ := s.deployer.ServiceURL(r.Context(), env.ID, svc.ID)
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
-		"ok":           true,
-		"env_id":       env.ID,
-		"service_id":   svc.ID,
-		"snapshot_id":  res.SnapshotID,
-		"artifact_ids": res.ArtifactIDs,
-		"service_url":  url,
+		"ok":             true,
+		"env_id":         env.ID,
+		"service_id":     svc.ID,
+		"snapshot_id":    res.SnapshotID,
+		"artifact_ids":   res.ArtifactIDs,
+		"service_url":    url,
+		"deployed":       deployed,
+		"deploy_skipped": !deployed,
 	})
 }
 
@@ -1322,12 +1357,86 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request, ser
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	st, err := s.deployer.ServiceStatus(r.Context(), serviceID)
+	envID := strings.TrimSpace(r.URL.Query().Get("env_id"))
+	st, err := s.deployer.ServiceStatus(r.Context(), envID, serviceID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "status failed: "+err.Error())
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request, serviceID string) {
+	if r.Method != "GET" {
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	envID := strings.TrimSpace(r.URL.Query().Get("env_id"))
+	if envID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
+		return
+	}
+
+	tail := 200
+	if v := strings.TrimSpace(r.URL.Query().Get("tail")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			// Keep it bounded to avoid returning huge payloads.
+			if n > 5000 {
+				n = 5000
+			}
+			tail = n
+		}
+	}
+
+	logs, err := s.deployer.ServiceLogs(r.Context(), envID, serviceID, tail)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "logs failed: "+err.Error())
+		return
+	}
+	// Keep JSON to match the SPA fetch client.
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"env_id": envID, "service_id": serviceID, "tail": tail, "logs": logs})
+}
+
+func (s *Server) handleServiceDeploy(w http.ResponseWriter, r *http.Request, serviceID string) {
+	if r.Method != "POST" {
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		EnvID string `json:"env_id"`
+	}
+	if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	req.EnvID = strings.TrimSpace(req.EnvID)
+	if req.EnvID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
+		return
+	}
+
+	svc, err := s.store.GetServiceByID(r.Context(), serviceID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, "unknown service")
+		return
+	}
+	env, err := s.store.GetEnvByID(r.Context(), req.EnvID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "unknown env")
+		return
+	}
+	if env.AppID != svc.AppID {
+		httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
+		return
+	}
+
+	if err := s.deployer.ApplyService(r.Context(), req.EnvID, serviceID); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+		return
+	}
+
+	url, _ := s.deployer.ServiceURL(r.Context(), req.EnvID, serviceID)
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "env_id": req.EnvID, "service_id": serviceID, "service_url": url})
 }
 
 func (s *Server) handleServiceRedeploy(w http.ResponseWriter, r *http.Request, serviceID string) {

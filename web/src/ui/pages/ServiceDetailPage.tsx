@@ -54,6 +54,39 @@ export function ServiceDetailPage() {
   const [ref, setRef] = useState<string>("");
   const [filesBySlotID, setFilesBySlotID] = useState<Record<string, File | null>>({});
   const [uploadResult, setUploadResult] = useState<any>(null);
+  const [autoDeploy, setAutoDeploy] = useState<boolean>(true);
+
+  const statusQuery = useQuery({
+    queryKey: ["serviceStatus", serviceId, selectedEnvID],
+    queryFn: () => api.getServiceStatus(serviceId!, selectedEnvID),
+    enabled: !!serviceId && !!selectedEnvID,
+    refetchOnWindowFocus: false,
+  });
+
+  const [logsTail, setLogsTail] = useState<number>(200);
+  const [logsText, setLogsText] = useState<string>("");
+
+  const fetchLogsMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedEnvID) throw new Error("请选择环境");
+      const res = await api.getServiceLogs(serviceId!, selectedEnvID, logsTail);
+      return res.logs;
+    },
+    onSuccess: (logs) => {
+      setLogsText(logs);
+    },
+  });
+
+  const deployMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedEnvID) throw new Error("请选择环境");
+      return api.deployService(serviceId!, selectedEnvID);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["serviceStatus", serviceId, selectedEnvID] });
+      alert("已触发部署");
+    },
+  });
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -61,6 +94,7 @@ export function ServiceDetailPage() {
 
       const form = new FormData();
       form.append("env_id", selectedEnvID);
+      form.append("deploy", autoDeploy ? "1" : "0");
       if (sha.trim()) form.append("sha", sha.trim());
       if (ref.trim()) form.append("ref", ref.trim());
 
@@ -81,6 +115,7 @@ export function ServiceDetailPage() {
     onSuccess: (res) => {
       setUploadResult(res);
       queryClient.invalidateQueries({ queryKey: ["service", serviceId] });
+      queryClient.invalidateQueries({ queryKey: ["serviceStatus", serviceId, selectedEnvID] });
     },
   });
 
@@ -248,6 +283,18 @@ export function ServiceDetailPage() {
             </div>
 
             <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={autoDeploy}
+                  onChange={(e) => setAutoDeploy(e.target.checked)}
+                />{" "}
+                上传后自动部署
+              </label>
+              <p className="help-text">关闭后会生成快照并更新当前版本，但不会触发容器更新，需要手动点击部署。</p>
+            </div>
+
+            <div className="form-group">
               <label>SHA（可选）</label>
               <input type="text" value={sha} onChange={(e) => setSha(e.target.value)} placeholder="提交 SHA" />
             </div>
@@ -284,10 +331,26 @@ export function ServiceDetailPage() {
             {uploadMutation.error && <div className="error">{String(uploadMutation.error)}</div>}
             {uploadResult && (
               <div className="success-message">
-                <div>上传成功：快照 <code>{uploadResult.snapshot_id}</code></div>
+                <div>
+                  上传成功：快照 <code>{uploadResult.snapshot_id}</code>
+                  {uploadResult.deploy_skipped ? <span className="muted">（待部署）</span> : null}
+                </div>
                 {uploadResult.service_url && (
                   <div>
                     访问地址：<code>{uploadResult.service_url}</code>
+                  </div>
+                )}
+                {uploadResult.deploy_skipped && selectedEnvID && (
+                  <div style={{ marginTop: "0.75rem" }}>
+                    <button
+                      className="btn-primary"
+                      type="button"
+                      onClick={() => deployMutation.mutate()}
+                      disabled={deployMutation.isPending}
+                    >
+                      {deployMutation.isPending ? "部署中..." : "部署当前版本"}
+                    </button>
+                    {deployMutation.error && <div className="error" style={{ marginTop: "0.5rem" }}>{String(deployMutation.error)}</div>}
                   </div>
                 )}
               </div>
@@ -300,9 +363,88 @@ export function ServiceDetailPage() {
                 disabled={uploadMutation.isPending}
                 onClick={() => uploadMutation.mutate()}
               >
-                {uploadMutation.isPending ? "上传中..." : "上传并部署"}
+                {uploadMutation.isPending ? "上传中..." : autoDeploy ? "上传并部署" : "上传（不部署）"}
               </button>
             </div>
+
+            {selectedEnvID && (
+              <div className="section" style={{ marginTop: "1.25rem" }}>
+                <div className="section-header">
+                  <h2>部署状态</h2>
+                  <p className="section-desc">基于 Docker Compose 项目（按环境）查询运行状态与日志。</p>
+                </div>
+
+                {statusQuery.isLoading ? (
+                  <div className="loading">加载中...</div>
+                ) : statusQuery.error ? (
+                  <div className="error">{String(statusQuery.error)}</div>
+                ) : (
+                  <div className="info-box">
+                    {statusQuery.data?.note && (
+                      <div className="muted" style={{ marginBottom: "0.5rem" }}>{String(statusQuery.data.note)}</div>
+                    )}
+                    {statusQuery.data?.desired_snapshot_id && (
+                      <div className="info-item"><strong>当前快照（desired）：</strong> <code>{String(statusQuery.data.desired_snapshot_id)}</code></div>
+                    )}
+                    {statusQuery.data?.service_url && (
+                      <div className="info-item"><strong>访问地址：</strong> <code>{String(statusQuery.data.service_url)}</code></div>
+                    )}
+                    <div className="info-item"><strong>Project：</strong> <code>{String(statusQuery.data?.project_name || "")}</code></div>
+                    {typeof statusQuery.data?.deployed === "boolean" && (
+                      <div className="info-item"><strong>已部署：</strong> <code>{String(statusQuery.data.deployed)}</code></div>
+                    )}
+                    <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                      <button className="btn-secondary" type="button" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>
+                        {statusQuery.isFetching ? "刷新中..." : "刷新状态"}
+                      </button>
+                      <button
+                        className="btn-secondary"
+                        type="button"
+                        onClick={() => deployMutation.mutate()}
+                        disabled={deployMutation.isPending}
+                      >
+                        {deployMutation.isPending ? "部署中..." : "部署当前版本"}
+                      </button>
+                    </div>
+                    {statusQuery.data?.ps && (
+                      <div style={{ marginTop: "0.75rem" }}>
+                        <div className="muted" style={{ marginBottom: "0.25rem" }}>docker compose ps</div>
+                        <pre style={{ whiteSpace: "pre-wrap" }}>{String(statusQuery.data.ps)}</pre>
+                      </div>
+                    )}
+                    {statusQuery.data?.ps_error && (
+                      <div className="error" style={{ marginTop: "0.5rem" }}>{String(statusQuery.data.ps_error)}</div>
+                    )}
+                  </div>
+                )}
+
+                <div className="info-box" style={{ marginTop: "0.75rem" }}>
+                  <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label>日志 tail</label>
+                      <input
+                        type="number"
+                        value={logsTail}
+                        onChange={(e) => setLogsTail(parseInt(e.target.value || "200", 10))}
+                        style={{ width: "120px" }}
+                      />
+                    </div>
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      onClick={() => fetchLogsMutation.mutate()}
+                      disabled={fetchLogsMutation.isPending}
+                    >
+                      {fetchLogsMutation.isPending ? "拉取中..." : "查看日志"}
+                    </button>
+                  </div>
+                  {fetchLogsMutation.error && <div className="error" style={{ marginTop: "0.5rem" }}>{String(fetchLogsMutation.error)}</div>}
+                  {logsText && (
+                    <pre style={{ marginTop: "0.75rem", whiteSpace: "pre-wrap" }}>{logsText}</pre>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

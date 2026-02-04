@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -156,6 +157,60 @@ func (m *ComposeManager) Restart(ctx context.Context, envID, serviceID, serviceK
 		return fmt.Errorf("docker compose restart failed: %w\nOutput: %s", err, string(output))
 	}
 	return nil
+}
+
+// Ps returns `docker compose ps` output (best-effort).
+func (m *ComposeManager) Ps(ctx context.Context, envID, serviceID, serviceKey string) (string, error) {
+	composeFile := m.GetComposeFile(envID, serviceID)
+	projectName := m.GetProjectName(envID, serviceKey)
+
+	if _, err := os.Stat(composeFile); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("compose file not found")
+		}
+		return "", err
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", "compose",
+		"-f", composeFile,
+		"-p", projectName,
+		"ps", "--all")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("docker compose ps failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+// LogsOutput returns `docker compose logs` output.
+func (m *ComposeManager) LogsOutput(ctx context.Context, envID, serviceID, serviceKey string, tail int) (string, error) {
+	composeFile := m.GetComposeFile(envID, serviceID)
+	projectName := m.GetProjectName(envID, serviceKey)
+
+	if _, err := os.Stat(composeFile); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("compose file not found")
+		}
+		return "", err
+	}
+	if tail <= 0 {
+		tail = 200
+	}
+	if tail > 5000 {
+		tail = 5000
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", "compose",
+		"-f", composeFile,
+		"-p", projectName,
+		"logs", "--no-color", "--tail", strconv.Itoa(tail))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("docker compose logs failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
 }
 
 // Logs streams logs from the compose project
