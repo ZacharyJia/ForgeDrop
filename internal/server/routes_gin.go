@@ -154,6 +154,10 @@ func (s *Server) routes() http.Handler {
 		c.Header("Cache-Control", "no-store")
 		s.handleArtifactUpload(c.Writer, c.Request)
 	})
+	r.POST("/api/v1/artifacts/upload-batch", s.requireBearerTokenGin(), func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		s.handleArtifactUploadBatch(c.Writer, c.Request)
+	})
 
 	// Webhooks
 	r.POST("/webhooks/forgejo", func(c *gin.Context) {

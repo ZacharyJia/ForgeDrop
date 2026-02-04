@@ -71,6 +71,30 @@ curl -X POST \
   http://your-server:8080/api/v1/artifacts/upload
 ```
 
+## 批量上传（一次生成同一个快照）
+
+如果你的服务包含多个 slot（例如 jar + 配置包 + 静态资源），建议使用批量上传，避免多次上传导致版本不一致。
+
+接口：`POST /api/v1/artifacts/upload-batch`
+
+- 与单文件上传相同的字段：`app/env/service/repo/sha/ref/pr_number/deploy`
+- 文件字段使用 `file_<slotKey>`，其中 `<slotKey>` 为服务下 slot 的 `slot_key`
+
+示例：
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "app=my-app" \
+  -F "env=prod" \
+  -F "service=api" \
+  -F "repo=owner/repo" \
+  -F "deploy=1" \
+  -F "file_main=@build/app.jar" \
+  -F "file_config=@build/config.zip" \
+  http://your-server:8080/api/v1/artifacts/upload-batch
+```
+
 ## 手动上传 / 手动部署
 
 用于验证全流程：

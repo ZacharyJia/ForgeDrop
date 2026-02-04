@@ -20,9 +20,11 @@ export function DocsPage() {
           <a href="#setup">管理台配置流程</a>
           <a href="#compose">Compose 模板</a>
           <a href="#ci">CI 上传制品</a>
+          <a href="#ci-batch">批量上传</a>
           <a href="#manual">手动上传/手动部署</a>
           <a href="#preview">Preview 环境</a>
           <a href="#status">状态与日志</a>
+          <a href="#api">API 参考</a>
           <a href="#troubleshooting">常见问题</a>
         </aside>
 
@@ -132,6 +134,32 @@ export function DocsPage() {
             </div>
           </section>
 
+          <section className="doc-section" id="ci-batch">
+            <h2>批量上传（一次生成同一个快照）</h2>
+            <div className="info-box">
+              <p>
+                如果一个服务有多个 slot（例如 <code>jar</code> + <code>config</code> + <code>assets</code>），建议使用批量上传，避免多次上传导致版本不一致。
+              </p>
+              <p>接口：<code>POST /api/v1/artifacts/upload-batch</code></p>
+              <ul className="doc-list">
+                <li>字段同单文件上传：<code>app/env/service/repo/sha/ref/pr_number/deploy</code></li>
+                <li>文件字段使用 <code>file_&lt;slotKey&gt;</code>（slotKey 为服务下 slot 的 <code>slot_key</code>）</li>
+              </ul>
+              <pre>
+<code>{`curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "app=my-app" \
+  -F "env=prod" \
+  -F "service=api" \
+  -F "repo=owner/repo" \
+  -F "deploy=1" \
+  -F "file_main=@build/app.jar" \
+  -F "file_config=@build/config.zip" \
+  http://your-server:8080/api/v1/artifacts/upload-batch`}</code>
+              </pre>
+            </div>
+          </section>
+
           <section className="doc-section" id="manual">
             <h2>手动上传 / 手动部署（用于验证全流程）</h2>
             <div className="info-box">
@@ -167,6 +195,48 @@ export function DocsPage() {
                 <li><strong>当前快照（desired）</strong>：Env 的 current_snapshot</li>
                 <li><strong>docker compose ps</strong>：容器运行状态（best-effort）</li>
                 <li><strong>查看日志</strong>：拉取 compose logs（tail 可调）</li>
+              </ul>
+            </div>
+          </section>
+
+          <section className="doc-section" id="api">
+            <h2>API 参考</h2>
+            <div className="info-box">
+              <p className="muted">说明：管理台接口以 cookie session 认证；CI 上传接口以 Bearer Token 认证。</p>
+
+              <h3 style={{ marginTop: "0.25rem" }}>认证</h3>
+              <ul className="doc-list">
+                <li><code>POST /api/v1/auth/login</code> JSON: <code>{"{"}username,password{"}"}</code></li>
+                <li><code>POST /api/v1/auth/logout</code></li>
+                <li><code>GET /api/v1/admin/me</code></li>
+              </ul>
+
+              <h3 style={{ marginTop: "0.75rem" }}>Artifacts（CI）</h3>
+              <ul className="doc-list">
+                <li><code>POST /api/v1/artifacts/upload</code> multipart（单文件）</li>
+                <li><code>POST /api/v1/artifacts/upload-batch</code> multipart（批量）</li>
+              </ul>
+
+              <h3 style={{ marginTop: "0.75rem" }}>Service 观测与操作（管理台）</h3>
+              <ul className="doc-list">
+                <li><code>GET /api/v1/admin/services/:serviceID/status?env_id=...</code></li>
+                <li><code>GET /api/v1/admin/services/:serviceID/logs?env_id=...&amp;tail=200</code></li>
+                <li><code>POST /api/v1/admin/services/:serviceID/deploy</code> JSON: <code>{"{"}env_id{"}"}</code></li>
+                <li><code>POST /api/v1/admin/services/:serviceID/redeploy</code> JSON: <code>{"{"}env_id{"}"}</code>（强制重建）</li>
+              </ul>
+
+              <h3 style={{ marginTop: "0.75rem" }}>Env 快照</h3>
+              <ul className="doc-list">
+                <li><code>GET /api/v1/admin/envs/:envID</code></li>
+                <li><code>GET /api/v1/admin/envs/:envID/snapshots</code></li>
+                <li><code>POST /api/v1/admin/envs/:envID/rollback</code> JSON: <code>{"{"}snapshot_id{"}"}</code></li>
+              </ul>
+
+              <h3 style={{ marginTop: "0.75rem" }}>配置/仓库/令牌（管理台）</h3>
+              <ul className="doc-list">
+                <li><code>GET/PUT /api/v1/admin/settings</code></li>
+                <li><code>GET/POST/DELETE /api/v1/admin/repos</code></li>
+                <li><code>GET/POST/DELETE /api/v1/admin/tokens</code></li>
               </ul>
             </div>
           </section>

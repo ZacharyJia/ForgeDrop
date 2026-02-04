@@ -52,6 +52,9 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 - `deploy`：可选，`1`（默认）表示上传后自动部署；`0` 表示仅创建快照并更新当前版本，等待手动部署
 - 文件字段：`artifact=@xxx.jar`
 
+批量上传：`POST /api/v1/artifacts/upload-batch`
+- 文件字段使用 `file_<slotKey>=@...`，例如：`file_main=@app.jar`、`file_config=@config.zip`
+
 示例（curl）：
 
 ```bash

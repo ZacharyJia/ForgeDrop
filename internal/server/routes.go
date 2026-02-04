@@ -153,6 +153,7 @@ func (s *Server) legacyRoutes() http.Handler {
 	mux.Handle("/api/v1/auth/logout", s.withTimeout(http.HandlerFunc(method("POST", s.handleLogout))))
 	mux.Handle("/api/v1/admin/", s.withJSON(s.withTimeout(s.requireSession(http.HandlerFunc(s.handleAdmin)))))
 	mux.Handle("/api/v1/artifacts/upload", s.withJSON(s.withTimeout(s.requireBearerToken(http.HandlerFunc(s.handleArtifactUpload)))))
+	mux.Handle("/api/v1/artifacts/upload-batch", s.withJSON(s.withTimeout(s.requireBearerToken(http.HandlerFunc(s.handleArtifactUploadBatch)))))
 
 	mux.HandleFunc("/webhooks/forgejo", method("POST", s.handleForgejoWebhook))
 
@@ -1188,6 +1189,197 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		"service":        svc.ServiceKey,
 		"slot":           slot.SlotKey,
 		"container_id":   nil,
+	})
+}
+
+func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(512 << 20); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid multipart")
+		return
+	}
+	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
+	autoDeploy := parseAutoDeployFlag(get("deploy"))
+
+	appKey := get("app")
+	envName := get("env")
+	serviceKey := get("service")
+	repoFull := get("repo")
+	sha := get("sha")
+	ref := get("ref")
+	prStr := get("pr_number")
+
+	if appKey == "" || envName == "" || serviceKey == "" || repoFull == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "app/env/service/repo required")
+		return
+	}
+
+	var prNumber *int
+	if strings.EqualFold(envName, "preview") {
+		if prStr == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "pr_number required for preview")
+			return
+		}
+		n, err := strconv.Atoi(prStr)
+		if err != nil || n <= 0 {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid pr_number")
+			return
+		}
+		prNumber = &n
+	}
+
+	app, err := s.store.GetAppByKey(r.Context(), appKey)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "unknown app")
+		return
+	}
+	repo, err := s.store.GetRepoByFullName(r.Context(), repoFull)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "unknown repo (create it in UI first)")
+		return
+	}
+	svc, err := s.store.GetServiceByKey(r.Context(), app.ID, serviceKey)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "unknown service")
+		return
+	}
+
+	// Resolve env id
+	var envID string
+	if strings.EqualFold(envName, "preview") {
+		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, *prNumber)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "env failed")
+			return
+		}
+		envID = env.ID
+	} else {
+		id, err := s.store.GetEnvIDByName(r.Context(), app.ID, envName)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "unknown env (create it in UI first)")
+			return
+		}
+		envID = id
+	}
+
+	slots, err := s.store.ListSlotsByService(r.Context(), svc.ID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	slotByKey := make(map[string]db.Slot, len(slots))
+	for _, sl := range slots {
+		slotByKey[sl.SlotKey] = sl
+	}
+
+	files := r.MultipartForm.File
+	var entries []db.UploadBatchEntry
+	artifactIDsBySlot := make(map[string]string)
+	for field, fhs := range files {
+		if !strings.HasPrefix(field, "file_") {
+			continue
+		}
+		slotKey := strings.TrimPrefix(field, "file_")
+		sl, ok := slotByKey[slotKey]
+		if !ok {
+			httpx.WriteError(w, http.StatusBadRequest, "unknown slot in upload: "+slotKey)
+			return
+		}
+		if sl.RepoID != repo.ID {
+			httpx.WriteError(w, http.StatusForbidden, "repo not allowed for slot: "+slotKey)
+			return
+		}
+		if len(fhs) == 0 {
+			continue
+		}
+		h := fhs[0]
+		file, err := h.Open()
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "open file failed")
+			return
+		}
+		defer httpx.DrainAndClose(file)
+
+		artifactID, err := ids.New()
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "id failed")
+			return
+		}
+		artifactDir := filepath.Join(s.opts.DataDir, "artifacts", artifactID)
+		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "store failed")
+			return
+		}
+		filename := sanitizeFilename(h.Filename)
+		dstPath := filepath.Join(artifactDir, filename)
+		sha256Hex, sizeBytes, err := writeFileAndSHA256(dstPath, file)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+			return
+		}
+
+		entries = append(entries, db.UploadBatchEntry{
+			ArtifactID: artifactID,
+			SlotID:     sl.ID,
+			RepoID:     repo.ID,
+			SHA:        sha,
+			Ref:        ref,
+			PRNumber:   prNumber,
+			Filename:   filename,
+			SizeBytes:  sizeBytes,
+			SHA256Hex:  sha256Hex,
+			StoredPath: dstPath,
+		})
+		artifactIDsBySlot[slotKey] = artifactID
+	}
+
+	if len(entries) == 0 {
+		httpx.WriteError(w, http.StatusBadRequest, "no files uploaded (expected fields like file_<slotKey>)")
+		return
+	}
+
+	tokenID := tokenIDFromContext(r.Context())
+	note := "batch upload"
+	if sha != "" {
+		note = "batch upload sha=" + sha
+	}
+	res, err := s.store.CreateArtifactsAndSnapshotBatch(r.Context(), db.UploadBatchParams{
+		AppID:     app.ID,
+		ServiceID: svc.ID,
+		EnvID:     envID,
+		Entries:   entries,
+		TokenID:   tokenID,
+		UserID:    nil,
+		Note:      note,
+	})
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "db write failed: "+err.Error())
+		return
+	}
+
+	deployed := false
+	if autoDeploy {
+		if err := s.deployer.ApplyService(r.Context(), envID, svc.ID); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+			return
+		}
+		deployed = true
+	}
+
+	url, _ := s.deployer.ServiceURL(r.Context(), envID, svc.ID)
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
+		"ok":                   true,
+		"env_id":               envID,
+		"service_id":           svc.ID,
+		"snapshot_id":          res.SnapshotID,
+		"artifact_ids":         res.ArtifactIDs,
+		"artifact_ids_by_slot": artifactIDsBySlot,
+		"service_url":          url,
+		"deployed":             deployed,
+		"deploy_skipped":       !deployed,
+		"repo":                 repo.FullName,
+		"app":                  app.AppKey,
+		"env":                  envName,
+		"service":              svc.ServiceKey,
 	})
 }
 
