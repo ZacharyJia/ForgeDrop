@@ -2,11 +2,13 @@ import React, { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Env, type Slot } from "../../api";
+import { useToast } from "../toast";
 
 export function ServiceDetailPage() {
   const { serviceId } = useParams<{ serviceId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const { data, isLoading } = useQuery({
     queryKey: ["service", serviceId],
@@ -84,8 +86,9 @@ export function ServiceDetailPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["serviceStatus", serviceId, selectedEnvID] });
-      alert("已触发部署");
+      toast.success("已触发部署");
     },
+    onError: (e) => toast.error(String(e), "部署失败"),
   });
 
   const uploadMutation = useMutation({

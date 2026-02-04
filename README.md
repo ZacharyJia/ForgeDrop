@@ -4,15 +4,24 @@
 
 ## 快速开始（本地）
 
-1. 启动（默认数据目录 `./data`）：
+1. （推荐）构建并运行（包含内置 Web UI）：
+
+```bash
+scripts/build.sh --install
+./bin/forge-drop --addr :8080 --data-dir ./data
+```
+
+2. 或者直接运行（如果你尚未构建 `web/dist`，会看到“Web UI is not built”的提示页）：
 
 ```bash
 go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 ```
 
-2. 打开管理台：`http://localhost:8080/`
-   - 首次启动会进入 **Setup** 页面创建 admin 账号（只允许一次）。
-   - 若本机没有 Docker（或不想连接 Docker），可设置：`FORGE_DROP_NO_DOCKER=1`
+3. 打开管理台：`http://localhost:8080/`
+    - 首次启动会进入 **Setup** 页面创建 admin 账号（只允许一次）。
+    - 若本机没有 Docker（或不想连接 Docker），可设置：`FORGE_DROP_NO_DOCKER=1`
+
+> 管理台内置了使用文档页面：登录后访问 `http://localhost:8080/docs`。
 
 > 管理台 UI 由 `web/` 构建产出到 `web/dist`，并在 Go 二进制中 embed（无需额外 UI 服务）。建议使用 `scripts/build.sh --install` 一次性构建前后端。
 

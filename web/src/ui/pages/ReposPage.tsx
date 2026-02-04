@@ -1,11 +1,13 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
+import { useToast } from "../toast";
 
 export function ReposPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [fullName, setFullName] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
+  const toast = useToast();
   
   const queryClient = useQueryClient();
   const { data: repos, isLoading } = useQuery({
@@ -20,14 +22,18 @@ export function ReposPage() {
       setShowCreate(false);
       setFullName("");
       setWebhookSecret("");
+      toast.success("仓库已添加");
     },
+    onError: (e) => toast.error(String(e), "添加失败"),
   });
 
   const deleteMutation = useMutation({
     mutationFn: api.deleteRepo,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos"] });
+      toast.success("仓库已删除");
     },
+    onError: (e) => toast.error(String(e), "删除失败"),
   });
 
   const handleCreate = (e: React.FormEvent) => {
@@ -95,10 +101,10 @@ export function ReposPage() {
                 <div className="error">{String(createMutation.error)}</div>
               )}
               <div className="modal-actions">
-                <button type="button" onClick={() => setShowCreate(false)}>
+                <button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>
                   取消
                 </button>
-                <button type="submit" disabled={createMutation.isPending}>
+                <button type="submit" className="btn-primary" disabled={createMutation.isPending}>
                   {createMutation.isPending ? "添加中..." : "添加"}
                 </button>
               </div>

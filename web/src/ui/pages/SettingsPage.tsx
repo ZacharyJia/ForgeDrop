@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Settings } from "../../api";
+import { useToast } from "../toast";
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { data: settings, isLoading } = useQuery({
     queryKey: ["settings"],
     queryFn: api.getSettings,
@@ -21,7 +23,10 @@ export function SettingsPage() {
     mutationFn: () => api.updateSettings(formData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      alert("设置已保存");
+      toast.success("设置已保存");
+    },
+    onError: (e) => {
+      toast.error(String(e), "保存失败");
     },
   });
 
@@ -33,6 +38,16 @@ export function SettingsPage() {
   if (isLoading) {
     return <div className="loading">加载中...</div>;
   }
+
+  const copy = async (txt: string | undefined | null, label: string) => {
+    const v = (txt ?? "").trim();
+    if (!v) {
+      toast.error("没有可复制的内容", label);
+      return;
+    }
+    await navigator.clipboard.writeText(v);
+    toast.success("已复制到剪贴板", label);
+  };
 
   return (
     <div className="settings-page">
@@ -93,7 +108,10 @@ export function SettingsPage() {
           <div className="info-box">
             <div className="info-item">
               <strong>制品上传地址：</strong>
-              <code>{settings?.artifact_upload_url}</code>
+              <div className="code-row">
+                <code>{settings?.artifact_upload_url}</code>
+                <button type="button" className="btn-secondary" onClick={() => copy(settings?.artifact_upload_url, "制品上传地址")}>复制</button>
+              </div>
             </div>
             <p className="help-text">
               在 CI 流水线中使用该地址上传制品（artifact）
@@ -103,7 +121,10 @@ export function SettingsPage() {
           <div className="info-box">
             <div className="info-item">
               <strong>Forgejo Webhook 地址：</strong>
-              <code>{settings?.forgejo_webhook_url}</code>
+              <div className="code-row">
+                <code>{settings?.forgejo_webhook_url}</code>
+                <button type="button" className="btn-secondary" onClick={() => copy(settings?.forgejo_webhook_url, "Webhook 地址")}>复制</button>
+              </div>
             </div>
             <p className="help-text">
               在 Forgejo 仓库设置中将该地址配置为 Webhook

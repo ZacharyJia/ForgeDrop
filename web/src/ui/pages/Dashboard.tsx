@@ -56,6 +56,9 @@ export function Dashboard() {
           <li>生成 <Link to="/tokens">API 令牌</Link> 供 CI 上传制品</li>
           <li>从 CI 流水线上传制品（artifact）</li>
         </ol>
+        <div style={{ marginTop: "1rem" }}>
+          <Link to="/docs" className="btn-secondary">查看详细文档</Link>
+        </div>
       </div>
 
       {apps && apps.length > 0 && (

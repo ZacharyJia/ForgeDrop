@@ -4,11 +4,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import { api, type Service } from "../../api";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
+import { useToast } from "../toast";
 
 export function ServiceEditPage() {
   const { serviceId } = useParams<{ serviceId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const { data, isLoading } = useQuery({
     queryKey: ["service", serviceId],
@@ -44,7 +46,10 @@ export function ServiceEditPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["service", serviceId] });
-      alert("服务已更新");
+      toast.success("服务已更新");
+    },
+    onError: (e) => {
+      toast.error(String(e), "更新失败");
     },
   });
 

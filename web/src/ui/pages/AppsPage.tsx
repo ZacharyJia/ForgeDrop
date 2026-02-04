@@ -2,11 +2,13 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
+import { useToast } from "../toast";
 
 export function AppsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [appKey, setAppKey] = useState("");
   const [name, setName] = useState("");
+  const toast = useToast();
   
   const queryClient = useQueryClient();
   const { data: apps, isLoading } = useQuery({
@@ -21,14 +23,18 @@ export function AppsPage() {
       setShowCreate(false);
       setAppKey("");
       setName("");
+      toast.success("应用已创建");
     },
+    onError: (e) => toast.error(String(e), "创建失败"),
   });
 
   const deleteMutation = useMutation({
     mutationFn: api.deleteApp,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["apps"] });
+      toast.success("应用已删除");
     },
+    onError: (e) => toast.error(String(e), "删除失败"),
   });
 
   const handleCreate = (e: React.FormEvent) => {
@@ -80,10 +86,10 @@ export function AppsPage() {
                 <div className="error">{String(createMutation.error)}</div>
               )}
               <div className="modal-actions">
-                <button type="button" onClick={() => setShowCreate(false)}>
+                <button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>
                   取消
                 </button>
-                <button type="submit" disabled={createMutation.isPending}>
+                <button type="submit" className="btn-primary" disabled={createMutation.isPending}>
                   {createMutation.isPending ? "创建中..." : "创建"}
                 </button>
               </div>

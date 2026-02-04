@@ -1,11 +1,13 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
+import { useToast } from "../toast";
 
 export function TokensPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
   const [newToken, setNewToken] = useState<string | null>(null);
+  const toast = useToast();
   
   const queryClient = useQueryClient();
   const { data: tokens, isLoading } = useQuery({
@@ -19,14 +21,18 @@ export function TokensPage() {
       queryClient.invalidateQueries({ queryKey: ["tokens"] });
       setNewToken(data.plain_token);
       setName("");
+      toast.success("令牌已创建（请立即复制明文）");
     },
+    onError: (e) => toast.error(String(e), "创建失败"),
   });
 
   const revokeMutation = useMutation({
     mutationFn: api.revokeToken,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tokens"] });
+      toast.success("令牌已撤销");
     },
+    onError: (e) => toast.error(String(e), "撤销失败"),
   });
 
   const handleCreate = (e: React.FormEvent) => {
@@ -74,10 +80,10 @@ export function TokensPage() {
                 <div className="error">{String(createMutation.error)}</div>
               )}
               <div className="modal-actions">
-                <button type="button" onClick={() => setShowCreate(false)}>
+                <button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>
                   取消
                 </button>
-                <button type="submit" disabled={createMutation.isPending}>
+                <button type="submit" className="btn-primary" disabled={createMutation.isPending}>
                   {createMutation.isPending ? "创建中..." : "创建"}
                 </button>
               </div>
@@ -97,7 +103,7 @@ export function TokensPage() {
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(newToken);
-                    alert("已复制到剪贴板");
+                    toast.success("已复制到剪贴板");
                   }}
                   className="btn-secondary"
                 >

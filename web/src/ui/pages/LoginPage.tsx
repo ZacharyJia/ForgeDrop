@@ -2,12 +2,14 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
+import { useToast } from "../toast";
 
 export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const loginMutation = useMutation({
     mutationFn: () => api.login(username, password),
@@ -15,6 +17,7 @@ export function LoginPage() {
       queryClient.invalidateQueries({ queryKey: ["me"] });
       navigate("/");
     },
+    onError: (e) => toast.error(String(e), "登录失败"),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
