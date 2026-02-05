@@ -206,6 +206,8 @@ export function DocsPage() {
 
               <h3 style={{ marginTop: "0.25rem" }}>认证</h3>
               <ul className="doc-list">
+                <li><code>GET /api/v1/setup/status</code> - 是否允许首次初始化</li>
+                <li><code>POST /api/v1/setup</code> JSON: <code>{"{"}username,password{"}"}</code>（仅允许一次）</li>
                 <li><code>POST /api/v1/auth/login</code> JSON: <code>{"{"}username,password{"}"}</code></li>
                 <li><code>POST /api/v1/auth/logout</code></li>
                 <li><code>GET /api/v1/admin/me</code></li>

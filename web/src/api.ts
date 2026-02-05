@@ -92,6 +92,18 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Setup
+  async getSetupStatus(): Promise<{ allowed: boolean; user_count: number }> {
+    return apiFetch('/api/v1/setup/status');
+  },
+
+  async setup(username: string, password: string): Promise<{ user_id: string }> {
+    return apiFetch('/api/v1/setup', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  },
+
   // Auth
   async getMe(): Promise<User> {
     return apiFetch('/api/v1/admin/me');

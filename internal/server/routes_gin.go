@@ -35,6 +35,9 @@ func (s *Server) routes() http.Handler {
 		h := requireSetupAllowed(s.store, s.handleSetup)
 		h(c.Writer, c.Request)
 	})
+	r.GET("/api/v1/setup/status", func(c *gin.Context) {
+		s.handleSetupStatus(c.Writer, c.Request)
+	})
 	r.POST("/api/v1/auth/login", func(c *gin.Context) { s.handleLogin(c.Writer, c.Request) })
 	r.POST("/api/v1/auth/logout", func(c *gin.Context) { s.handleLogout(c.Writer, c.Request) })
 

@@ -149,6 +149,7 @@ func (s *Server) legacyRoutes() http.Handler {
 
 	// Public: setup + auth
 	mux.Handle("/api/v1/setup", s.withTimeout(http.HandlerFunc(method("POST", requireSetupAllowed(s.store, s.handleSetup)))))
+	mux.Handle("/api/v1/setup/status", s.withTimeout(http.HandlerFunc(method("GET", s.handleSetupStatus))))
 	mux.Handle("/api/v1/auth/login", s.withTimeout(http.HandlerFunc(method("POST", s.handleLogin))))
 	mux.Handle("/api/v1/auth/logout", s.withTimeout(http.HandlerFunc(method("POST", s.handleLogout))))
 	mux.Handle("/api/v1/admin/", s.withJSON(s.withTimeout(s.requireSession(http.HandlerFunc(s.handleAdmin)))))
@@ -278,6 +279,18 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"user_id": u.ID})
+}
+
+func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
+	c, err := s.store.UserCount(r.Context())
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"allowed":    c == 0,
+		"user_count": c,
+	})
 }
 
 type loginRequest struct {

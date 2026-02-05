@@ -16,6 +16,7 @@ import { TokensPage } from "./pages/TokensPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DocsPage } from "./pages/DocsPage";
+import { SetupPage } from "./pages/SetupPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -157,6 +158,7 @@ function Layout({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   return (
     <Routes>
+      <Route path="/setup" element={<SetupPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<Layout><Dashboard /></Layout>} />
       <Route path="/apps" element={<Layout><AppsPage /></Layout>} />
