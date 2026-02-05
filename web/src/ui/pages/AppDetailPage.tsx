@@ -257,8 +257,13 @@ export function AppDetailPage() {
               <div key={e.id} className="repo-card">
                 <div className="repo-header">
                   <div>
-                    <h3>{e.name}</h3>
-                    <div className="muted">{e.kind === "named" ? "命名环境" : e.kind}</div>
+                    <h3>
+                      {e.kind === "preview" && e.pr_number ? `PR #${e.pr_number}` : e.name}
+                    </h3>
+                    <div className="muted">
+                      {e.kind === "named" ? "命名环境" : "PR 预览"}
+                      {e.kind === "preview" && e.repo_slug ? ` · ${e.repo_slug}` : ""}
+                    </div>
                   </div>
                   <Link to={`/envs/${e.id}`} className="btn-secondary">进入环境</Link>
                 </div>
@@ -277,7 +282,7 @@ export function AppDetailPage() {
                       {envUrls[e.id].length > 6 && <div className="muted" style={{ marginTop: "0.25rem" }}>更多入口请进入环境详情查看</div>}
                     </>
                   ) : (
-                    <div className="muted">暂无可计算的 URL（请先配置 base_domain / host template / 服务）</div>
+                    <div className="muted">暂无可计算的 URL（请先配置 base_domain / host template，或该环境暂无服务）</div>
                   )}
                   <div className="repo-meta">创建时间：{new Date(e.created_at).toLocaleString()}</div>
                 </div>

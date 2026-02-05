@@ -177,6 +177,12 @@ func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app
 	if err := d.composeManager.Up(ctx, env.ID, svc.ID, svc.ServiceKey); err != nil {
 		return fmt.Errorf("docker compose up: %w", err)
 	}
+	// `docker compose up -d` does not restart containers when only bind-mounted
+	// files change (e.g. a new jar uploaded to the same path). Restart ensures the
+	// running process picks up the new artifact.
+	if err := d.composeManager.Restart(ctx, env.ID, svc.ID, svc.ServiceKey); err != nil {
+		return fmt.Errorf("docker compose restart: %w", err)
+	}
 
 	d.logf("Deployed service %s (env=%s) using Docker Compose", svc.ServiceKey, env.Name)
 	return nil
