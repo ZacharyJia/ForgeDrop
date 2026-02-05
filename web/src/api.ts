@@ -128,6 +128,11 @@ export interface TraefikStatus {
   ports_80: boolean;
   ports_443: boolean;
   docker_sock_mount: boolean;
+
+	// Dashboard (optional)
+	dashboard_enabled: boolean;
+	dashboard_host: string;
+	dashboard_url: string;
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -224,10 +229,10 @@ export const api = {
     return apiFetch('/api/v1/admin/traefik/status');
   },
 
-  async installTraefik(staging: boolean): Promise<TraefikStatus> {
+  async installTraefik(opts: { staging: boolean; enable_dashboard?: boolean; dashboard_host?: string }): Promise<TraefikStatus> {
     return apiFetch('/api/v1/admin/traefik/install', {
       method: 'POST',
-      body: JSON.stringify({ staging }),
+      body: JSON.stringify(opts),
     });
   },
 

@@ -35,10 +35,16 @@ type traefikStatus struct {
 	Ports80         bool   `json:"ports_80"`
 	Ports443        bool   `json:"ports_443"`
 	DockerSockMount bool   `json:"docker_sock_mount"`
+
+	DashboardEnabled bool   `json:"dashboard_enabled"`
+	DashboardHost    string `json:"dashboard_host"`
+	DashboardURL     string `json:"dashboard_url"`
 }
 
 type traefikInstallRequest struct {
-	Staging bool `json:"staging"`
+	Staging         bool   `json:"staging"`
+	EnableDashboard bool   `json:"enable_dashboard"`
+	DashboardHost   string `json:"dashboard_host"`
 }
 
 func (s *Server) handleAdminTraefik(w http.ResponseWriter, r *http.Request, rest string) {
@@ -181,6 +187,11 @@ func (s *Server) getTraefikStatus(ctx context.Context) (*traefikStatus, error) {
 	st.ContainerExists = true
 	if ins.Config.Labels != nil {
 		st.Managed = strings.EqualFold(ins.Config.Labels[managedTraefikLabelKey], "true")
+		st.DashboardEnabled = strings.EqualFold(ins.Config.Labels["traefik.http.routers.traefik-dashboard.tls"], "true") || strings.Contains(ins.Config.Labels["traefik.http.routers.traefik-dashboard.rule"], "Host(")
+		st.DashboardHost = extractHostFromRule(ins.Config.Labels["traefik.http.routers.traefik-dashboard.rule"])
+		if st.DashboardHost != "" {
+			st.DashboardURL = "https://" + st.DashboardHost
+		}
 	}
 	st.Running = ins.State.Running
 	_, onNet := ins.NetworkSettings.Networks[networkName]
@@ -231,6 +242,22 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 	regionID = strings.TrimSpace(regionID)
 	if regionID == "" {
 		regionID = "cn-hangzhou"
+	}
+
+	baseDomain, _ := s.store.GetSetting(ctx, "base_domain")
+	baseDomain = strings.TrimSpace(baseDomain)
+	if req.EnableDashboard {
+		host := strings.TrimSpace(req.DashboardHost)
+		if host == "" {
+			if baseDomain == "" {
+				return nil, fmt.Errorf("base_domain 未设置，无法生成 dashboard 域名")
+			}
+			host = "traefik." + baseDomain
+		}
+		if !strings.Contains(host, ".") {
+			return nil, fmt.Errorf("dashboard_host 必须是完整域名，例如 traefik.example.com")
+		}
+		req.DashboardHost = host
 	}
 
 	// Ensure docker network exists.
@@ -319,6 +346,19 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 			image,
 		)
 	}
+	if req.EnableDashboard {
+		host := strings.TrimSpace(req.DashboardHost)
+		// Expose dashboard via internal service `api@internal`.
+		args = append(args[:len(args)-1],
+			"--label", "traefik.enable=true",
+			"--label", "traefik.http.routers.traefik-dashboard.rule=Host(`"+host+"`)",
+			"--label", "traefik.http.routers.traefik-dashboard.entrypoints=websecure",
+			"--label", "traefik.http.routers.traefik-dashboard.tls=true",
+			"--label", "traefik.http.routers.traefik-dashboard.service=api@internal",
+			image,
+		)
+	}
+
 	if _, err := dockerCmd(ctx, args...); err != nil {
 		return nil, fmt.Errorf("start traefik: %w", err)
 	}
@@ -461,4 +501,19 @@ func dockerInspectContainer(ctx context.Context, name string) (*dockerContainerI
 		return nil, fmt.Errorf("container not found")
 	}
 	return &arr[0], nil
+}
+
+func extractHostFromRule(rule string) string {
+	// Expect: Host(`traefik.example.com`)
+	rule = strings.TrimSpace(rule)
+	idx := strings.Index(rule, "Host(`")
+	if idx < 0 {
+		return ""
+	}
+	s := rule[idx+len("Host(`"):]
+	end := strings.Index(s, "`)")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(s[:end])
 }

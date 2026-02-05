@@ -48,7 +48,9 @@ export function SettingsPage() {
 
   const [showTraefikInstall, setShowTraefikInstall] = useState(false);
   const [traefikStaging, setTraefikStaging] = useState(true);
-
+  const [traefikEnableDashboard, setTraefikEnableDashboard] = useState(false);
+  const [traefikDashboardHost, setTraefikDashboardHost] = useState("");
+  
   const [aliAccessKey, setAliAccessKey] = useState("");
   const [aliSecretKey, setAliSecretKey] = useState("");
   const saveAliCredsMutation = useMutation({
@@ -62,7 +64,11 @@ export function SettingsPage() {
     onError: (e) => toast.error(String(e), "保存失败"),
   });
   const installTraefikMutation = useMutation({
-    mutationFn: () => api.installTraefik(traefikStaging),
+    mutationFn: () => api.installTraefik({
+      staging: traefikStaging,
+      enable_dashboard: traefikEnableDashboard,
+      dashboard_host: traefikDashboardHost.trim() || undefined,
+    }),
     onSuccess: (st) => {
       toast.success(st.message || "Traefik 已安装/修复");
       setShowTraefikInstall(false);
@@ -240,6 +246,13 @@ export function SettingsPage() {
                 <div style={{ marginTop: "0.25rem" }} className="muted">
                   acme=<code>{traefikStatusQuery.data.acme_mode}</code>
                 </div>
+
+				{traefikStatusQuery.data.dashboard_enabled && traefikStatusQuery.data.dashboard_url && (
+				  <div style={{ marginTop: "0.25rem" }}>
+					<strong>Dashboard：</strong>{" "}
+					<a href={traefikStatusQuery.data.dashboard_url} target="_blank" rel="noreferrer">{traefikStatusQuery.data.dashboard_url}</a>
+				  </div>
+				)}
               </div>
             )}
             <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
@@ -314,6 +327,27 @@ export function SettingsPage() {
               </label>
               <p className="help-text">Staging 不会触发正式证书的速率限制，确认无误后可关闭再安装一次。</p>
             </div>
+
+			<div className="form-group">
+			  <label>
+				<input type="checkbox" checked={traefikEnableDashboard} onChange={(e) => setTraefikEnableDashboard(e.target.checked)} />{" "}
+				启用 Traefik Dashboard（通过域名暴露）
+			  </label>
+			  <p className="help-text">仅建议在内网/受控网络使用。当前版本不自动加认证，请自行限制访问。</p>
+			</div>
+
+			{traefikEnableDashboard && (
+			  <div className="form-group">
+				<label>Dashboard 域名（可选）</label>
+				<input
+				  type="text"
+				  value={traefikDashboardHost}
+				  onChange={(e) => setTraefikDashboardHost(e.target.value)}
+				  placeholder={formData.base_domain ? `traefik.${formData.base_domain}` : "traefik.example.com"}
+				/>
+				<p className="help-text">为空则默认使用 <code>traefik.&lt;base_domain&gt;</code>。</p>
+			  </div>
+			)}
             <div className="modal-actions">
               <button type="button" className="btn-secondary" onClick={() => setShowTraefikInstall(false)}>
                 取消

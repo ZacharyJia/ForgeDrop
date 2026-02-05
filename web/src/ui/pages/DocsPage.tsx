@@ -241,7 +241,7 @@ export function DocsPage() {
               <ul className="doc-list">
                 <li><code>GET/PUT /api/v1/admin/settings</code></li>
                 <li><code>GET /api/v1/admin/traefik/status</code></li>
-                <li><code>POST /api/v1/admin/traefik/install</code> JSON: <code>{"{"}staging{"}"}</code></li>
+                <li><code>POST /api/v1/admin/traefik/install</code> JSON: <code>{"{"}staging, enable_dashboard, dashboard_host{"}"}</code></li>
                 <li><code>GET/POST/DELETE /api/v1/admin/repos</code></li>
                 <li><code>GET/POST/DELETE /api/v1/admin/tokens</code></li>
               </ul>

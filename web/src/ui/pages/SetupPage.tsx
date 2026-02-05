@@ -28,6 +28,8 @@ export function SetupPage() {
   const [aliSecretKey, setAliSecretKey] = useState("");
   const [aliRegion, setAliRegion] = useState("cn-hangzhou");
   const [staging, setStaging] = useState(true);
+  const [enableDashboard, setEnableDashboard] = useState(false);
+  const [dashboardHost, setDashboardHost] = useState("");
 
   const setupMutation = useMutation({
     mutationFn: async () => {
@@ -39,6 +41,9 @@ export function SetupPage() {
 			if (!baseDomain.trim()) throw new Error("请填写基础域名（用于预览域名计算）");
 			if (!acmeEmail.trim()) throw new Error("请填写 ACME 邮箱");
 			if (!aliAccessKey.trim() || !aliSecretKey.trim()) throw new Error("请填写阿里云 DNS 的 AccessKey/SecretKey");
+			if (enableDashboard && dashboardHost.trim() && !dashboardHost.includes(".")) {
+				throw new Error("Dashboard 域名必须是完整域名（例如 traefik.example.com）");
+			}
 		}
 
       await api.setup(username.trim(), password);
@@ -56,7 +61,11 @@ export function SetupPage() {
 				traefik_alicloud_region_id: aliRegion.trim() || "cn-hangzhou",
 			});
 			await api.setTraefikAliyunCredentials(aliAccessKey.trim(), aliSecretKey.trim());
-			await api.installTraefik(staging);
+			await api.installTraefik({
+				staging,
+				enable_dashboard: enableDashboard,
+				dashboard_host: dashboardHost.trim() || undefined,
+			});
 		}
     },
     onSuccess: () => {
@@ -170,6 +179,22 @@ export function SetupPage() {
 								</label>
 								<p className="help-text">推荐先勾选测试，确认无误后可在设置页关闭后再安装一次。</p>
 							</div>
+
+							<div className="form-group">
+								<label>
+									<input type="checkbox" checked={enableDashboard} onChange={(e) => setEnableDashboard(e.target.checked)} />{" "}
+									启用 Traefik Dashboard
+								</label>
+								<p className="help-text">建议仅在内网使用；当前不自动加认证。</p>
+							</div>
+
+							{enableDashboard && (
+								<div className="form-group">
+									<label>Dashboard 域名（可选）</label>
+									<input type="text" value={dashboardHost} onChange={(e) => setDashboardHost(e.target.value)} placeholder={baseDomain ? `traefik.${baseDomain}` : "traefik.example.com"} />
+									<p className="help-text">为空则默认使用 <code>traefik.&lt;base_domain&gt;</code>。</p>
+								</div>
+							)}
 						</>
 					)}
 				</div>
