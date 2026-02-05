@@ -20,6 +20,7 @@ export function SettingsPage() {
         base_domain: settings.base_domain,
         preview_host_template: settings.preview_host_template,
         docker_network: settings.docker_network,
+        traefik_acme_email: settings.traefik_acme_email || "",
       });
     }
   }, [settings]);
@@ -33,6 +34,25 @@ export function SettingsPage() {
     onError: (e) => {
       toast.error(String(e), "保存失败");
     },
+  });
+
+  const traefikStatusQuery = useQuery({
+    queryKey: ["traefikStatus"],
+    queryFn: api.getTraefikStatus,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
+  const [showTraefikInstall, setShowTraefikInstall] = useState(false);
+  const [traefikStaging, setTraefikStaging] = useState(true);
+  const installTraefikMutation = useMutation({
+    mutationFn: () => api.installTraefik(traefikStaging),
+    onSuccess: (st) => {
+      toast.success(st.message || "Traefik 已安装/修复");
+      setShowTraefikInstall(false);
+      traefikStatusQuery.refetch();
+    },
+    onError: (e) => toast.error(String(e), "安装失败"),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -105,6 +125,51 @@ export function SettingsPage() {
               容器加入的 Docker 网络名称（需已存在，且 Traefik 可访问）
             </p>
           </div>
+
+          <div className="form-group">
+            <label>Traefik ACME 邮箱</label>
+            <input
+              type="text"
+              value={formData.traefik_acme_email || ""}
+              onChange={(e) => setFormData({ ...formData, traefik_acme_email: e.target.value })}
+              placeholder="admin@example.com"
+            />
+            <p className="help-text">用于 Let's Encrypt 证书申请通知；一键安装 Traefik 需要该字段。</p>
+          </div>
+
+          <div className="info-box">
+            <div className="info-item"><strong>Traefik 状态：</strong> {traefikStatusQuery.data ? (
+              <span className={traefikStatusQuery.data.ok ? "badge badge-enabled" : "badge badge-disabled"}>
+                {traefikStatusQuery.data.ok ? "已就绪" : "未就绪"}
+              </span>
+            ) : (
+              <span className="muted">未检测</span>
+            )}</div>
+            {traefikStatusQuery.isError && (
+              <div className="error" style={{ marginTop: "0.5rem" }}>{String(traefikStatusQuery.error)}</div>
+            )}
+            {traefikStatusQuery.data && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <div className="muted">{traefikStatusQuery.data.message}</div>
+                <div style={{ marginTop: "0.5rem" }} className="muted">
+                  network=<code>{traefikStatusQuery.data.network_name}</code> container=<code>{traefikStatusQuery.data.container_name}</code>
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
+              <button className="btn-secondary" type="button" onClick={() => traefikStatusQuery.refetch()} disabled={traefikStatusQuery.isFetching}>
+                {traefikStatusQuery.isFetching ? "检测中..." : "检测 Traefik"}
+              </button>
+              {traefikStatusQuery.data && !traefikStatusQuery.data.ok && (
+                <button className="btn-primary" type="button" onClick={() => setShowTraefikInstall(true)}>
+                  一键安装/修复 Traefik
+                </button>
+              )}
+            </div>
+            <p className="help-text" style={{ marginTop: "0.75rem" }}>
+              注意：一键安装会尝试启动一个由 forge-drop 管理的 Traefik 容器，并绑定宿主机 80/443 端口；如果端口已被占用会失败。
+            </p>
+          </div>
         </div>
 
         <div className="form-section">
@@ -147,6 +212,38 @@ export function SettingsPage() {
           </button>
         </div>
       </form>
+
+      {showTraefikInstall && (
+        <div className="modal-overlay" onClick={() => setShowTraefikInstall(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>一键安装/修复 Traefik</h2>
+            <div className="info-box">
+              <p>将启动容器：<code>forge-drop-traefik</code></p>
+              <p className="muted">需要：Docker 可用、80/443 端口空闲、已配置 DNS（含通配符）。</p>
+            </div>
+            <div className="form-group">
+              <label>
+                <input type="checkbox" checked={traefikStaging} onChange={(e) => setTraefikStaging(e.target.checked)} />{" "}
+                使用 Let's Encrypt Staging（推荐先勾选测试）
+              </label>
+              <p className="help-text">Staging 不会触发正式证书的速率限制，确认无误后可关闭再安装一次。</p>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setShowTraefikInstall(false)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => installTraefikMutation.mutate()}
+                disabled={installTraefikMutation.isPending}
+              >
+                {installTraefikMutation.isPending ? "执行中..." : "开始执行"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="section">
         <h2>配置指南</h2>

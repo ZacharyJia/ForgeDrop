@@ -105,8 +105,24 @@ export interface Settings {
   base_domain: string;
   preview_host_template: string;
   docker_network: string;
+  traefik_acme_email?: string;
   artifact_upload_url: string;
   forgejo_webhook_url: string;
+}
+
+export interface TraefikStatus {
+  ok: boolean;
+  message: string;
+  network_name: string;
+  network_exists: boolean;
+  container_name: string;
+  container_exists: boolean;
+  managed: boolean;
+  running: boolean;
+  on_network: boolean;
+  ports_80: boolean;
+  ports_443: boolean;
+  docker_sock_mount: boolean;
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -188,9 +204,22 @@ export const api = {
     if (typeof settings.base_domain === 'string') payload.base_domain = settings.base_domain;
     if (typeof settings.preview_host_template === 'string') payload.preview_host_template = settings.preview_host_template;
     if (typeof settings.docker_network === 'string') payload.docker_network = settings.docker_network;
+    if (typeof settings.traefik_acme_email === 'string') payload.traefik_acme_email = settings.traefik_acme_email;
     await apiFetch('/api/v1/admin/settings', {
       method: 'PUT',
       body: JSON.stringify(payload),
+    });
+  },
+
+  // Traefik
+  async getTraefikStatus(): Promise<TraefikStatus> {
+    return apiFetch('/api/v1/admin/traefik/status');
+  },
+
+  async installTraefik(staging: boolean): Promise<TraefikStatus> {
+    return apiFetch('/api/v1/admin/traefik/install', {
+      method: 'POST',
+      body: JSON.stringify({ staging }),
     });
   },
 

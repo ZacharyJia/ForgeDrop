@@ -312,7 +312,7 @@ export function EnvDetailPage() {
   }, [data?.env]);
 
   // Pre-create status queries so the page feels responsive when expanding panels.
-  useQueries({
+  const statusResults = useQueries({
     queries: services.map((svc) => ({
       queryKey: ["serviceStatus", svc.id, envId],
       queryFn: () => api.getServiceStatus(svc.id, envId!),
@@ -320,6 +320,15 @@ export function EnvDetailPage() {
       refetchOnWindowFocus: false,
     })),
   });
+
+  const serviceLinks = useMemo(() => {
+    return services
+      .map((svc, i) => {
+        const url = (statusResults[i] as any)?.data?.service_url as string | undefined;
+        return { id: svc.id, name: svc.name, key: svc.service_key, url };
+      })
+      .filter((x) => !!x.url);
+  }, [services, statusResults]);
 
   if (envQuery.isPending) return <div className="loading">加载中...</div>;
   if (envQuery.isError || !data) return <div className="error">{String(envQuery.error || "未找到环境")}</div>;
@@ -347,6 +356,20 @@ export function EnvDetailPage() {
         <div className="info-item"><strong>当前快照（desired）：</strong> {data.current_snapshot_id ? <code>{String(data.current_snapshot_id)}</code> : <span className="muted">暂无</span>}</div>
         {data.env.kind === "preview" && !data.env.pr_number && (
           <div className="muted">这是 preview 占位环境。真实 preview 会在首次上传 PR artifact 时自动创建。</div>
+        )}
+
+        {serviceLinks.length > 0 && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <div className="muted" style={{ marginBottom: "0.25rem" }}>服务入口</div>
+            <div className="url-chips">
+              {serviceLinks.map((x) => (
+                <a key={x.id} className="url-chip" href={x.url!} target="_blank" rel="noreferrer">
+                  <span className="muted">{x.key}</span>
+                  <code>{x.url}</code>
+                </a>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

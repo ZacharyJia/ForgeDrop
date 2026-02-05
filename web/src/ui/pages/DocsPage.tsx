@@ -236,6 +236,8 @@ export function DocsPage() {
               <h3 style={{ marginTop: "0.75rem" }}>配置/仓库/令牌（管理台）</h3>
               <ul className="doc-list">
                 <li><code>GET/PUT /api/v1/admin/settings</code></li>
+                <li><code>GET /api/v1/admin/traefik/status</code></li>
+                <li><code>POST /api/v1/admin/traefik/install</code> JSON: <code>{"{"}staging{"}"}</code></li>
                 <li><code>GET/POST/DELETE /api/v1/admin/repos</code></li>
                 <li><code>GET/POST/DELETE /api/v1/admin/tokens</code></li>
               </ul>

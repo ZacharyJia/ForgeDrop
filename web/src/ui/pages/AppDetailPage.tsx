@@ -20,6 +20,12 @@ export function AppDetailPage() {
     enabled: !!appId,
   });
 
+  const settingsQuery = useQuery({
+    queryKey: ["settings"],
+    queryFn: api.getSettings,
+    refetchOnWindowFocus: false,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: api.deleteService,
     onSuccess: () => {
@@ -57,6 +63,41 @@ export function AppDetailPage() {
   const app = data.app;
   const services = data.services ?? [];
   const envs = data.envs ?? [];
+
+  const renderPreviewHost = (tpl: string, appKey: string, repoSlug: string, pr: number, serviceKey: string, baseDomain: string) => {
+    const t = (tpl || "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}").trim();
+    return t
+      .replaceAll("{app}", appKey)
+      .replaceAll("{repoSlug}", repoSlug)
+      .replaceAll("{pr}", String(pr))
+      .replaceAll("{service}", serviceKey)
+      .replaceAll("{base_domain}", baseDomain);
+  };
+
+  const envUrls = useMemo(() => {
+    const baseDomain = settingsQuery.data?.base_domain || "";
+    const tpl = settingsQuery.data?.preview_host_template || "";
+    const out: Record<string, { label: string; url: string }[]> = {};
+
+    for (const e of envs) {
+      const list: { label: string; url: string }[] = [];
+      if (e.kind === "named" && e.name === "prod") {
+        for (const svc of services) {
+          if (svc.prod_host) {
+            list.push({ label: svc.service_key, url: `https://${svc.prod_host}` });
+          }
+        }
+      }
+      if (e.kind === "preview" && e.repo_slug && e.pr_number && baseDomain) {
+        for (const svc of services) {
+          const host = renderPreviewHost(tpl, app.app_key, e.repo_slug, e.pr_number, svc.service_key, baseDomain);
+          if (host) list.push({ label: svc.service_key, url: `https://${host}` });
+        }
+      }
+      out[e.id] = list;
+    }
+    return out;
+  }, [envs, services, settingsQuery.data, app.app_key]);
 
   return (
     <div className="app-detail-page">
@@ -191,9 +232,21 @@ export function AppDetailPage() {
                   <Link to={`/envs/${e.id}`} className="btn-secondary">进入环境</Link>
                 </div>
                 <div className="repo-body">
-                  <div className="info-item"><strong>ID：</strong> <code>{e.id}</code></div>
-                  {e.current_snapshot_id && (
-                    <div className="info-item"><strong>当前快照：</strong> <code>{e.current_snapshot_id}</code></div>
+                  {envUrls[e.id] && envUrls[e.id].length > 0 ? (
+                    <>
+                      <div className="muted" style={{ marginBottom: "0.25rem" }}>入口 URL</div>
+                      <div className="url-chips">
+                        {envUrls[e.id].slice(0, 6).map((x) => (
+                          <a key={x.label + x.url} className="url-chip" href={x.url} target="_blank" rel="noreferrer">
+                            <span className="muted">{x.label}</span>
+                            <code>{x.url}</code>
+                          </a>
+                        ))}
+                      </div>
+                      {envUrls[e.id].length > 6 && <div className="muted" style={{ marginTop: "0.25rem" }}>更多入口请进入环境详情查看</div>}
+                    </>
+                  ) : (
+                    <div className="muted">暂无可计算的 URL（prod 需配置 service.prod_host；preview 需 repo+pr）</div>
                   )}
                   <div className="repo-meta">创建时间：{new Date(e.created_at).toLocaleString()}</div>
                 </div>

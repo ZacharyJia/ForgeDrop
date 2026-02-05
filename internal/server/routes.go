@@ -398,6 +398,9 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "services"):
 		s.handleAdminServices(w, r, strings.TrimPrefix(path, "services"))
 		return
+	case strings.HasPrefix(path, "traefik"):
+		s.handleAdminTraefik(w, r, strings.TrimPrefix(path, "traefik"))
+		return
 	default:
 		httpx.WriteError(w, http.StatusNotFound, "not found")
 		return
@@ -427,10 +430,12 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		baseDomain, _ := s.store.GetSetting(r.Context(), "base_domain")
 		tpl, _ := s.store.GetSetting(r.Context(), "preview_host_template")
 		netw, _ := s.store.GetSetting(r.Context(), "docker_network")
+		email, _ := s.store.GetSetting(r.Context(), "traefik_acme_email")
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{
 			"base_domain":            baseDomain,
 			"preview_host_template":  tpl,
 			"docker_network":         netw,
+			"traefik_acme_email":     email,
 			"artifact_upload_url":    s.baseURL(r) + "/api/v1/artifacts/upload",
 			"forgejo_webhook_url":    s.baseURL(r) + "/webhooks/forgejo",
 			"preview_hosting_note":   "configure wildcard DNS and Traefik separately",
@@ -445,7 +450,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		}
 		for k, v := range req {
 			switch k {
-			case "base_domain", "preview_host_template", "docker_network":
+			case "base_domain", "preview_host_template", "docker_network", "traefik_acme_email":
 				if err := s.store.SetSetting(r.Context(), k, strings.TrimSpace(v)); err != nil {
 					httpx.WriteError(w, http.StatusInternalServerError, "save failed")
 					return

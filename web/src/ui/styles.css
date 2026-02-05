@@ -602,6 +602,34 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   color: var(--text-muted);
 }
 
+.url-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.url-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text);
+  text-decoration: none;
+  max-width: 100%;
+}
+
+.url-chip:hover {
+  background: var(--bg-secondary);
+}
+
+.url-chip code {
+  background: transparent;
+  padding: 0;
+}
+
 code {
   background: var(--bg-secondary);
   padding: 0.125rem 0.375rem;

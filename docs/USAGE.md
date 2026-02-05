@@ -20,6 +20,8 @@
 3. DNS 通配解析：`*.yourdomain.com` 指向服务器 IP（用于 preview 子域名）
 4. Traefik 与业务容器处于同一 Docker network（例如 `traefik`）
 
+可选：在管理台 Settings 页使用“一键安装/修复 Traefik”来启动一个由 forge-drop 管理的 Traefik 容器（会绑定宿主机 80/443）。
+
 ## 管理台配置流程（建议顺序）
 
 1. Settings：配置 `base_domain`、`preview_host_template`、`docker_network`
