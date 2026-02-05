@@ -21,6 +21,8 @@ export function SettingsPage() {
         preview_host_template: settings.preview_host_template,
         docker_network: settings.docker_network,
         traefik_acme_email: settings.traefik_acme_email || "",
+        traefik_acme_mode: settings.traefik_acme_mode || "tls",
+        traefik_alicloud_region_id: settings.traefik_alicloud_region_id || "cn-hangzhou",
       });
     }
   }, [settings]);
@@ -45,6 +47,19 @@ export function SettingsPage() {
 
   const [showTraefikInstall, setShowTraefikInstall] = useState(false);
   const [traefikStaging, setTraefikStaging] = useState(true);
+
+  const [aliAccessKey, setAliAccessKey] = useState("");
+  const [aliSecretKey, setAliSecretKey] = useState("");
+  const saveAliCredsMutation = useMutation({
+    mutationFn: () => api.setTraefikAliyunCredentials(aliAccessKey.trim(), aliSecretKey.trim()),
+    onSuccess: () => {
+      toast.success("Aliyun 凭证已保存");
+      setAliAccessKey("");
+      setAliSecretKey("");
+      traefikStatusQuery.refetch();
+    },
+    onError: (e) => toast.error(String(e), "保存失败"),
+  });
   const installTraefikMutation = useMutation({
     mutationFn: () => api.installTraefik(traefikStaging),
     onSuccess: (st) => {
@@ -137,6 +152,60 @@ export function SettingsPage() {
             <p className="help-text">用于 Let's Encrypt 证书申请通知；一键安装 Traefik 需要该字段。</p>
           </div>
 
+          <div className="form-group">
+            <label>证书方式</label>
+            <select
+              value={formData.traefik_acme_mode || "tls"}
+              onChange={(e) => setFormData({ ...formData, traefik_acme_mode: e.target.value })}
+            >
+              <option value="dns-alidns">DNS-01（Aliyun，内网推荐）</option>
+              <option value="tls">TLS-ALPN（公网 443）</option>
+            </select>
+            <p className="help-text">内网使用一般无法完成公网 80/443 验证，建议使用 DNS Challenge。</p>
+          </div>
+
+          {formData.traefik_acme_mode === "dns-alidns" && (
+            <>
+              <div className="form-group">
+                <label>Aliyun Region ID</label>
+                <input
+                  type="text"
+                  value={formData.traefik_alicloud_region_id || ""}
+                  onChange={(e) => setFormData({ ...formData, traefik_alicloud_region_id: e.target.value })}
+                  placeholder="cn-hangzhou"
+                />
+                <p className="help-text">默认 cn-hangzhou。一般无需修改。</p>
+              </div>
+
+              <div className="info-box">
+                <div className="info-item"><strong>Aliyun DNS 凭证</strong> <span className="muted">（用于创建 TXT 记录）</span></div>
+                <div className="muted">出于安全考虑，保存后不会回显明文。</div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "0.75rem" }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>ALICLOUD_ACCESS_KEY</label>
+                    <input type="text" value={aliAccessKey} onChange={(e) => setAliAccessKey(e.target.value)} placeholder="access key id" />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>ALICLOUD_SECRET_KEY</label>
+                    <input type="password" value={aliSecretKey} onChange={(e) => setAliSecretKey(e.target.value)} placeholder="access key secret" />
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                  <button className="btn-secondary" type="button" onClick={() => saveAliCredsMutation.mutate()} disabled={saveAliCredsMutation.isPending}>
+                    {saveAliCredsMutation.isPending ? "保存中..." : "保存凭证"}
+                  </button>
+                  {traefikStatusQuery.data && (
+                    <span className={traefikStatusQuery.data.alicloud_credentials_set ? "badge badge-enabled" : "badge badge-disabled"}>
+                      {traefikStatusQuery.data.alicloud_credentials_set ? "已配置" : "未配置"}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
           <div className="info-box">
             <div className="info-item"><strong>Traefik 状态：</strong> {traefikStatusQuery.data ? (
               <span className={traefikStatusQuery.data.ok ? "badge badge-enabled" : "badge badge-disabled"}>
@@ -153,6 +222,9 @@ export function SettingsPage() {
                 <div className="muted">{traefikStatusQuery.data.message}</div>
                 <div style={{ marginTop: "0.5rem" }} className="muted">
                   network=<code>{traefikStatusQuery.data.network_name}</code> container=<code>{traefikStatusQuery.data.container_name}</code>
+                </div>
+                <div style={{ marginTop: "0.25rem" }} className="muted">
+                  acme=<code>{traefikStatusQuery.data.acme_mode}</code>
                 </div>
               </div>
             )}

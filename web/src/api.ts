@@ -106,6 +106,8 @@ export interface Settings {
   preview_host_template: string;
   docker_network: string;
   traefik_acme_email?: string;
+  traefik_acme_mode?: string;
+  traefik_alicloud_region_id?: string;
   artifact_upload_url: string;
   forgejo_webhook_url: string;
 }
@@ -113,6 +115,8 @@ export interface Settings {
 export interface TraefikStatus {
   ok: boolean;
   message: string;
+  acme_mode: string;
+  alicloud_credentials_set: boolean;
   network_name: string;
   network_exists: boolean;
   container_name: string;
@@ -205,6 +209,8 @@ export const api = {
     if (typeof settings.preview_host_template === 'string') payload.preview_host_template = settings.preview_host_template;
     if (typeof settings.docker_network === 'string') payload.docker_network = settings.docker_network;
     if (typeof settings.traefik_acme_email === 'string') payload.traefik_acme_email = settings.traefik_acme_email;
+    if (typeof settings.traefik_acme_mode === 'string') payload.traefik_acme_mode = settings.traefik_acme_mode;
+    if (typeof settings.traefik_alicloud_region_id === 'string') payload.traefik_alicloud_region_id = settings.traefik_alicloud_region_id;
     await apiFetch('/api/v1/admin/settings', {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -220,6 +226,13 @@ export const api = {
     return apiFetch('/api/v1/admin/traefik/install', {
       method: 'POST',
       body: JSON.stringify({ staging }),
+    });
+  },
+
+  async setTraefikAliyunCredentials(accessKey: string, secretKey: string): Promise<{ ok: boolean }> {
+    return apiFetch('/api/v1/admin/traefik/credentials', {
+      method: 'POST',
+      body: JSON.stringify({ alicloud_access_key: accessKey, alicloud_secret_key: secretKey }),
     });
   },
 

@@ -132,6 +132,9 @@ func (s *Server) routes() http.Handler {
 	admin.POST("/traefik/install", func(c *gin.Context) {
 		s.handleAdminTraefik(c.Writer, c.Request, "/install")
 	})
+	admin.POST("/traefik/credentials", func(c *gin.Context) {
+		s.handleAdminTraefik(c.Writer, c.Request, "/credentials")
+	})
 	admin.GET("/apps/:appID/envs", func(c *gin.Context) { s.handleAdminApps(c.Writer, c.Request, "/"+c.Param("appID")+"/envs") })
 	admin.GET("/services/:serviceID", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")) })
 	admin.PUT("/services/:serviceID", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")) })

@@ -20,15 +20,43 @@ export function SetupPage() {
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
 
+  const [configureInfra, setConfigureInfra] = useState(true);
+  const [baseDomain, setBaseDomain] = useState("");
+  const [dockerNetwork, setDockerNetwork] = useState("traefik");
+  const [acmeEmail, setAcmeEmail] = useState("");
+  const [aliAccessKey, setAliAccessKey] = useState("");
+  const [aliSecretKey, setAliSecretKey] = useState("");
+  const [aliRegion, setAliRegion] = useState("cn-hangzhou");
+  const [staging, setStaging] = useState(true);
+
   const setupMutation = useMutation({
     mutationFn: async () => {
       if (!username.trim() || !password) throw new Error("请输入用户名与密码");
       if (password.length < 6) throw new Error("密码至少 6 位");
       if (password !== password2) throw new Error("两次输入的密码不一致");
 
+		if (configureInfra) {
+			if (!baseDomain.trim()) throw new Error("请填写基础域名（用于预览域名计算）");
+			if (!acmeEmail.trim()) throw new Error("请填写 ACME 邮箱");
+			if (!aliAccessKey.trim() || !aliSecretKey.trim()) throw new Error("请填写阿里云 DNS 的 AccessKey/SecretKey");
+		}
+
       await api.setup(username.trim(), password);
       // After creating the first admin, log in immediately for a smooth first-run.
       await api.login(username.trim(), password);
+
+		if (configureInfra) {
+			// Persist basic settings + Traefik ACME mode.
+			await api.updateSettings({
+				base_domain: baseDomain.trim(),
+				docker_network: dockerNetwork.trim() || "traefik",
+				traefik_acme_email: acmeEmail.trim(),
+				traefik_acme_mode: "dns-alidns",
+				traefik_alicloud_region_id: aliRegion.trim() || "cn-hangzhou",
+			});
+			await api.setTraefikAliyunCredentials(aliAccessKey.trim(), aliSecretKey.trim());
+			await api.installTraefik(staging);
+		}
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["me"] });
@@ -85,6 +113,66 @@ export function SetupPage() {
               <label>确认密码</label>
               <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} required />
             </div>
+
+			<details className="info-box" open>
+				<summary style={{ cursor: "pointer" }}>
+					<strong>基础设施初始化（可选）</strong>
+					<span className="muted">（内网推荐：DNS-01 阿里云）</span>
+				</summary>
+				<div style={{ marginTop: "0.75rem" }}>
+					<div className="form-group">
+						<label>
+							<input type="checkbox" checked={configureInfra} onChange={(e) => setConfigureInfra(e.target.checked)} />{" "}
+							同时配置并安装 Traefik（DNS Challenge）
+						</label>
+						<p className="help-text">会启动 Traefik 容器并绑定 80/443 端口；需要域名托管在阿里云 DNS。</p>
+					</div>
+
+					{configureInfra && (
+						<>
+							<div className="form-group">
+								<label>基础域名</label>
+								<input type="text" value={baseDomain} onChange={(e) => setBaseDomain(e.target.value)} placeholder="example.com" />
+								<p className="help-text">用于生成预览域名（preview）等。</p>
+							</div>
+
+							<div className="form-group">
+								<label>Docker Network</label>
+								<input type="text" value={dockerNetwork} onChange={(e) => setDockerNetwork(e.target.value)} placeholder="traefik" />
+							</div>
+
+							<div className="form-group">
+								<label>ACME 邮箱</label>
+								<input type="text" value={acmeEmail} onChange={(e) => setAcmeEmail(e.target.value)} placeholder="admin@example.com" />
+							</div>
+
+							<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+								<div className="form-group">
+									<label>ALICLOUD_ACCESS_KEY</label>
+									<input type="text" value={aliAccessKey} onChange={(e) => setAliAccessKey(e.target.value)} placeholder="access key id" />
+								</div>
+								<div className="form-group">
+									<label>ALICLOUD_SECRET_KEY</label>
+									<input type="password" value={aliSecretKey} onChange={(e) => setAliSecretKey(e.target.value)} placeholder="access key secret" />
+								</div>
+							</div>
+
+							<div className="form-group">
+								<label>ALICLOUD_REGION_ID</label>
+								<input type="text" value={aliRegion} onChange={(e) => setAliRegion(e.target.value)} placeholder="cn-hangzhou" />
+							</div>
+
+							<div className="form-group">
+								<label>
+									<input type="checkbox" checked={staging} onChange={(e) => setStaging(e.target.checked)} />{" "}
+									使用 Let's Encrypt Staging
+								</label>
+								<p className="help-text">推荐先勾选测试，确认无误后可在设置页关闭后再安装一次。</p>
+							</div>
+						</>
+					)}
+				</div>
+			</details>
 
             {setupMutation.error && <div className="error">{String(setupMutation.error)}</div>}
             <button type="submit" className="btn-primary" disabled={setupMutation.isPending}>

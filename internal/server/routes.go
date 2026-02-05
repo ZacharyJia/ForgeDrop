@@ -431,15 +431,19 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		tpl, _ := s.store.GetSetting(r.Context(), "preview_host_template")
 		netw, _ := s.store.GetSetting(r.Context(), "docker_network")
 		email, _ := s.store.GetSetting(r.Context(), "traefik_acme_email")
+		acmeMode, _ := s.store.GetSetting(r.Context(), "traefik_acme_mode")
+		regionID, _ := s.store.GetSetting(r.Context(), "traefik_alicloud_region_id")
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{
-			"base_domain":            baseDomain,
-			"preview_host_template":  tpl,
-			"docker_network":         netw,
-			"traefik_acme_email":     email,
-			"artifact_upload_url":    s.baseURL(r) + "/api/v1/artifacts/upload",
-			"forgejo_webhook_url":    s.baseURL(r) + "/webhooks/forgejo",
-			"preview_hosting_note":   "configure wildcard DNS and Traefik separately",
-			"requires_traefik_label": true,
+			"base_domain":                baseDomain,
+			"preview_host_template":      tpl,
+			"docker_network":             netw,
+			"traefik_acme_email":         email,
+			"traefik_acme_mode":          acmeMode,
+			"traefik_alicloud_region_id": regionID,
+			"artifact_upload_url":        s.baseURL(r) + "/api/v1/artifacts/upload",
+			"forgejo_webhook_url":        s.baseURL(r) + "/webhooks/forgejo",
+			"preview_hosting_note":       "configure wildcard DNS and Traefik separately",
+			"requires_traefik_label":     true,
 		})
 		return
 	case "PUT":
@@ -450,7 +454,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		}
 		for k, v := range req {
 			switch k {
-			case "base_domain", "preview_host_template", "docker_network", "traefik_acme_email":
+			case "base_domain", "preview_host_template", "docker_network", "traefik_acme_email", "traefik_acme_mode", "traefik_alicloud_region_id":
 				if err := s.store.SetSetting(r.Context(), k, strings.TrimSpace(v)); err != nil {
 					httpx.WriteError(w, http.StatusInternalServerError, "save failed")
 					return

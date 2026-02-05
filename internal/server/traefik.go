@@ -21,6 +21,9 @@ type traefikStatus struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
 
+	ACMEMode               string `json:"acme_mode"`
+	AlicloudCredentialsSet bool   `json:"alicloud_credentials_set"`
+
 	NetworkName  string `json:"network_name"`
 	NetworkExist bool   `json:"network_exists"`
 
@@ -66,6 +69,41 @@ func (s *Server) handleAdminTraefik(w http.ResponseWriter, r *http.Request, rest
 		return
 	}
 
+	// /traefik/credentials
+	if r.Method == "POST" && (rest == "credentials" || rest == "/credentials") {
+		var req struct {
+			AccessKey string `json:"alicloud_access_key"`
+			SecretKey string `json:"alicloud_secret_key"`
+		}
+		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		req.AccessKey = strings.TrimSpace(req.AccessKey)
+		req.SecretKey = strings.TrimSpace(req.SecretKey)
+		if req.AccessKey == "" || req.SecretKey == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "alicloud_access_key/alicloud_secret_key required")
+			return
+		}
+		secretsDir := filepath.Join(s.opts.DataDir, "traefik", "secrets")
+		if err := os.MkdirAll(secretsDir, 0o755); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "mkdir failed")
+			return
+		}
+		akPath := filepath.Join(secretsDir, "ALICLOUD_ACCESS_KEY")
+		skPath := filepath.Join(secretsDir, "ALICLOUD_SECRET_KEY")
+		if err := os.WriteFile(akPath, []byte(req.AccessKey), 0o600); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+			return
+		}
+		if err := os.WriteFile(skPath, []byte(req.SecretKey), 0o600); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+
 	httpx.WriteError(w, http.StatusNotFound, "not found")
 }
 
@@ -88,9 +126,17 @@ func (s *Server) getTraefikStatus(ctx context.Context) (*traefikStatus, error) {
 		networkName = "traefik"
 	}
 
+	acmeMode, _ := s.store.GetSetting(ctx, "traefik_acme_mode")
+	acmeMode = strings.TrimSpace(acmeMode)
+	if acmeMode == "" {
+		acmeMode = "tls"
+	}
+	secretsDir := filepath.Join(s.opts.DataDir, "traefik", "secrets")
 	st := &traefikStatus{
-		NetworkName:   networkName,
-		ContainerName: managedTraefikContainerName,
+		NetworkName:            networkName,
+		ContainerName:          managedTraefikContainerName,
+		ACMEMode:               acmeMode,
+		AlicloudCredentialsSet: fileExists(filepath.Join(secretsDir, "ALICLOUD_ACCESS_KEY")) && fileExists(filepath.Join(secretsDir, "ALICLOUD_SECRET_KEY")),
 	}
 
 	st.NetworkExist = dockerNetworkExists(ctx, networkName)
@@ -149,6 +195,9 @@ func (s *Server) getTraefikStatus(ctx context.Context) (*traefikStatus, error) {
 	}
 
 	st.OK = st.NetworkExist && st.Managed && st.Running && st.OnNetwork && st.Ports80 && st.Ports443 && st.DockerSockMount
+	if strings.EqualFold(st.ACMEMode, "dns-alidns") {
+		st.OK = st.OK && st.AlicloudCredentialsSet
+	}
 	if st.OK {
 		st.Message = "Traefik 已就绪"
 		return st, nil
@@ -173,6 +222,16 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 	if email == "" {
 		return nil, fmt.Errorf("traefik_acme_email 未设置，请先在设置页填写邮箱")
 	}
+	acmeMode, _ := s.store.GetSetting(ctx, "traefik_acme_mode")
+	acmeMode = strings.TrimSpace(acmeMode)
+	if acmeMode == "" {
+		acmeMode = "tls"
+	}
+	regionID, _ := s.store.GetSetting(ctx, "traefik_alicloud_region_id")
+	regionID = strings.TrimSpace(regionID)
+	if regionID == "" {
+		regionID = "cn-hangzhou"
+	}
 
 	// Ensure docker network exists.
 	if !dockerNetworkExists(ctx, networkName) {
@@ -193,7 +252,21 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 	if req.Staging {
 		caserver = "https://acme-staging-v02.api.letsencrypt.org/directory"
 	}
-	conf := buildTraefikYAML(email, resolver, caserver)
+	secretsDir := filepath.Join(s.opts.DataDir, "traefik", "secrets")
+	accessKeyFile := filepath.Join(secretsDir, "ALICLOUD_ACCESS_KEY")
+	secretKeyFile := filepath.Join(secretsDir, "ALICLOUD_SECRET_KEY")
+	credsSet := fileExists(accessKeyFile) && fileExists(secretKeyFile)
+	if strings.EqualFold(acmeMode, "dns-alidns") && !credsSet {
+		return nil, fmt.Errorf("Aliyun DNS 凭证未配置，请先在设置页填写并保存 ALICLOUD_ACCESS_KEY/ALICLOUD_SECRET_KEY")
+	}
+
+	conf := buildTraefikYAML(traefikYAMLOptions{
+		Email:       email,
+		Resolver:    resolver,
+		CAServer:    caserver,
+		ACMEMode:    acmeMode,
+		DNSProvider: "alidns",
+	})
 	if err := os.WriteFile(confPath, []byte(conf), 0o644); err != nil {
 		return nil, err
 	}
@@ -236,6 +309,16 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 		"-v", acmePath + ":/data/acme.json",
 		image,
 	}
+	if strings.EqualFold(acmeMode, "dns-alidns") {
+		args = append(args[:len(args)-1],
+			"-e", "ALICLOUD_ACCESS_KEY_FILE=/run/secrets/ALICLOUD_ACCESS_KEY",
+			"-e", "ALICLOUD_SECRET_KEY_FILE=/run/secrets/ALICLOUD_SECRET_KEY",
+			"-e", "ALICLOUD_REGION_ID="+regionID,
+			"-v", accessKeyFile+":/run/secrets/ALICLOUD_ACCESS_KEY:ro",
+			"-v", secretKeyFile+":/run/secrets/ALICLOUD_SECRET_KEY:ro",
+			image,
+		)
+	}
 	if _, err := dockerCmd(ctx, args...); err != nil {
 		return nil, fmt.Errorf("start traefik: %w", err)
 	}
@@ -243,15 +326,37 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 	return s.getTraefikStatus(ctx)
 }
 
-func buildTraefikYAML(email, resolver, caserver string) string {
-	// Keep it simple: docker provider, entrypoints web/websecure, ACME TLS-ALPN.
+type traefikYAMLOptions struct {
+	Email       string
+	Resolver    string
+	CAServer    string
+	ACMEMode    string // tls|dns-alidns
+	DNSProvider string
+}
+
+func buildTraefikYAML(opts traefikYAMLOptions) string {
+	// Keep it simple: docker provider, entrypoints web/websecure.
+	// For ACME: either tlsChallenge (public) or dnsChallenge (internal).
 	// Note: dashboard is enabled but not exposed unless routed.
+	email := strings.ReplaceAll(strings.TrimSpace(opts.Email), "'", "")
+	resolver := strings.TrimSpace(opts.Resolver)
+	if resolver == "" {
+		resolver = "le"
+	}
+	acmeMode := strings.TrimSpace(opts.ACMEMode)
+	if acmeMode == "" {
+		acmeMode = "tls"
+	}
+
 	var b strings.Builder
 	b.WriteString("entryPoints:\n")
 	b.WriteString("  web:\n")
 	b.WriteString("    address: ':80'\n")
 	b.WriteString("  websecure:\n")
 	b.WriteString("    address: ':443'\n")
+	b.WriteString("    http:\n")
+	b.WriteString("      tls:\n")
+	b.WriteString("        certResolver: " + resolver + "\n")
 	b.WriteString("providers:\n")
 	b.WriteString("  docker:\n")
 	b.WriteString("    endpoint: 'unix:///var/run/docker.sock'\n")
@@ -261,15 +366,36 @@ func buildTraefikYAML(email, resolver, caserver string) string {
 	b.WriteString("certificatesResolvers:\n")
 	b.WriteString("  " + resolver + ":\n")
 	b.WriteString("    acme:\n")
-	b.WriteString("      email: '" + strings.ReplaceAll(email, "'", "") + "'\n")
+	b.WriteString("      email: '" + email + "'\n")
 	b.WriteString("      storage: '/data/acme.json'\n")
-	if caserver != "" {
-		b.WriteString("      caServer: '" + caserver + "'\n")
+	if strings.TrimSpace(opts.CAServer) != "" {
+		b.WriteString("      caServer: '" + strings.TrimSpace(opts.CAServer) + "'\n")
 	}
-	b.WriteString("      tlsChallenge: {}\n")
+
+	if strings.EqualFold(acmeMode, "dns-alidns") {
+		provider := strings.TrimSpace(opts.DNSProvider)
+		if provider == "" {
+			provider = "alidns"
+		}
+		b.WriteString("      dnsChallenge:\n")
+		b.WriteString("        provider: " + provider + "\n")
+		b.WriteString("        resolvers:\n")
+		b.WriteString("          - '223.5.5.5:53'\n")
+		b.WriteString("          - '223.6.6.6:53'\n")
+		b.WriteString("        propagation:\n")
+		b.WriteString("          delayBeforeChecks: 10s\n")
+	} else {
+		b.WriteString("      tlsChallenge: {}\n")
+	}
+
 	b.WriteString("log:\n")
 	b.WriteString("  level: INFO\n")
 	return b.String()
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
 }
 
 func dockerOK(ctx context.Context) error {
