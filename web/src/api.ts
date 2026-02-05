@@ -170,8 +170,15 @@ export const api = {
     return apiFetch(`/api/v1/admin/envs/${envId}`);
   },
 
-  async deployEnv(envId: string): Promise<{ ok: boolean }> {
-    return apiFetch(`/api/v1/admin/envs/${envId}/deploy`, { method: 'POST' });
+  async deployEnv(envId: string, strategy: 'recreate' | 'restart' = 'recreate'): Promise<{ ok: boolean }> {
+    return apiFetch(`/api/v1/admin/envs/${envId}/deploy`, {
+      method: 'POST',
+      body: JSON.stringify({ strategy }),
+    });
+  },
+
+  async deleteEnv(envId: string): Promise<{ ok: boolean }> {
+    return apiFetch(`/api/v1/admin/envs/${envId}`, { method: 'DELETE' });
   },
 
   async listEnvSnapshots(envId: string): Promise<Snapshot[]> {
@@ -247,6 +254,14 @@ export const api = {
     });
   },
 
+  // Maintenance
+  async pruneUnreferenced(dryRun = false, limit = 500): Promise<any> {
+    return apiFetch('/api/v1/admin/maintenance/prune', {
+      method: 'POST',
+      body: JSON.stringify({ dry_run: dryRun, limit }),
+    });
+  },
+
   // Apps
   async listApps(): Promise<App[]> {
     return apiFetch('/api/v1/admin/apps');
@@ -305,10 +320,10 @@ export const api = {
     return apiFetch(`/api/v1/admin/services/${serviceId}/logs?${q.toString()}`);
   },
 
-  async deployService(serviceId: string, envId: string): Promise<any> {
+  async deployService(serviceId: string, envId: string, strategy: 'recreate' | 'restart' = 'recreate'): Promise<any> {
     return apiFetch(`/api/v1/admin/services/${serviceId}/deploy`, {
       method: 'POST',
-      body: JSON.stringify({ env_id: envId }),
+      body: JSON.stringify({ env_id: envId, strategy }),
     });
   },
 

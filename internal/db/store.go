@@ -18,6 +18,73 @@ type Store struct {
 	sql *sql.DB
 }
 
+type UnreferencedArtifact struct {
+	ID         string
+	StoredPath string
+	SizeBytes  int64
+}
+
+func (s *Store) ListUnreferencedArtifacts(ctx context.Context, limit int) ([]UnreferencedArtifact, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := s.sql.QueryContext(ctx, `SELECT a.id, a.stored_path, a.size_bytes
+		FROM artifacts a
+		LEFT JOIN snapshot_slots ss ON ss.artifact_id=a.id
+		WHERE ss.artifact_id IS NULL
+		ORDER BY a.created_at ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UnreferencedArtifact
+	for rows.Next() {
+		var a UnreferencedArtifact
+		if err := rows.Scan(&a.ID, &a.StoredPath, &a.SizeBytes); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteArtifactByID(ctx context.Context, artifactID string) error {
+	_, err := s.sql.ExecContext(ctx, `DELETE FROM artifacts WHERE id=?`, artifactID)
+	return err
+}
+
+func (s *Store) ListOrphanSnapshots(ctx context.Context, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := s.sql.QueryContext(ctx, `SELECT sn.id
+		FROM snapshots sn
+		LEFT JOIN snapshot_slots ss ON ss.snapshot_id=sn.id
+		LEFT JOIN envs e ON e.current_snapshot_id=sn.id AND e.deleted_at IS NULL
+		WHERE ss.snapshot_id IS NULL AND e.id IS NULL
+		ORDER BY sn.created_at ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteSnapshotByID(ctx context.Context, snapshotID string) error {
+	_, err := s.sql.ExecContext(ctx, `DELETE FROM snapshots WHERE id=?`, snapshotID)
+	return err
+}
+
 func NewStore(sqlDB *sql.DB) *Store {
 	return &Store{sql: sqlDB}
 }

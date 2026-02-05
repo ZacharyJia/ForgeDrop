@@ -79,6 +79,17 @@ export function SettingsPage() {
     onError: (e) => toast.error(String(e), "安装失败"),
   });
 
+  const [pruneDryRun, setPruneDryRun] = useState(true);
+  const [pruneResult, setPruneResult] = useState<any>(null);
+  const pruneMutation = useMutation({
+    mutationFn: () => api.pruneUnreferenced(pruneDryRun, 500),
+    onSuccess: (res) => {
+      setPruneResult(res);
+      toast.success(pruneDryRun ? '已完成模拟清理' : '已完成清理');
+    },
+    onError: (e) => toast.error(String(e), '清理失败'),
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     updateMutation.mutate();
@@ -340,6 +351,38 @@ export function SettingsPage() {
           </button>
         </div>
       </form>
+
+      <div className="form-section">
+        <h2>维护</h2>
+        <div className="info-box">
+          <div className="info-item"><strong>清理未引用的旧制品</strong></div>
+          <p className="help-text">会删除数据库中未被任何快照引用的 artifacts，并尝试删除对应磁盘文件。也会清理没有任何引用的孤儿 snapshots。</p>
+          <p className="help-text">不会删除当前环境正在使用（current snapshot）或历史快照引用的 artifacts。</p>
+
+          <div className="form-group" style={{ marginTop: "0.75rem" }}>
+            <label>
+              <input type="checkbox" checked={pruneDryRun} onChange={(e) => setPruneDryRun(e.target.checked)} />{" "}
+              先模拟（dry-run）
+            </label>
+          </div>
+
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button className="btn-secondary" type="button" onClick={() => pruneMutation.mutate()} disabled={pruneMutation.isPending}>
+              {pruneMutation.isPending ? '执行中...' : pruneDryRun ? '模拟清理' : '立即清理'}
+            </button>
+          </div>
+
+          {pruneMutation.error && <div className="error" style={{ marginTop: "0.75rem" }}>{String(pruneMutation.error)}</div>}
+          {pruneResult && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <div className="muted">artifacts_removed=<code>{String(pruneResult.artifacts_removed)}</code> snapshots_removed=<code>{String(pruneResult.snapshots_removed)}</code> bytes_removed=<code>{String(pruneResult.bytes_removed)}</code></div>
+              {Array.isArray(pruneResult.errors) && pruneResult.errors.length > 0 && (
+                <pre style={{ marginTop: "0.5rem", whiteSpace: "pre-wrap" }}>{pruneResult.errors.join("\n")}</pre>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {showTraefikInstall && (
         <div className="modal-overlay" onClick={() => setShowTraefikInstall(false)}>

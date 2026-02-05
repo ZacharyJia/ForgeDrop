@@ -135,6 +135,10 @@ func (s *Server) routes() http.Handler {
 	admin.POST("/traefik/credentials", func(c *gin.Context) {
 		s.handleAdminTraefik(c.Writer, c.Request, "/credentials")
 	})
+
+	admin.POST("/maintenance/prune", func(c *gin.Context) {
+		s.handleAdminMaintenance(c.Writer, c.Request, "/prune")
+	})
 	admin.GET("/apps/:appID/envs", func(c *gin.Context) { s.handleAdminApps(c.Writer, c.Request, "/"+c.Param("appID")+"/envs") })
 	admin.GET("/services/:serviceID", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")) })
 	admin.PUT("/services/:serviceID", func(c *gin.Context) { s.handleAdminServices(c.Writer, c.Request, "/"+c.Param("serviceID")) })
@@ -159,6 +163,7 @@ func (s *Server) routes() http.Handler {
 	})
 
 	admin.GET("/envs/:envID", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")) })
+	admin.DELETE("/envs/:envID", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")) })
 	admin.GET("/envs/:envID/snapshots", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/snapshots") })
 	admin.GET("/envs/:envID/services/:serviceID/slot-artifacts", func(c *gin.Context) {
 		s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/services/"+c.Param("serviceID")+"/slot-artifacts")

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,6 +35,20 @@ func parseAutoDeployFlag(v string) bool {
 		return false
 	}
 	return true
+}
+
+func parseDeployStrategy(v string) string {
+	// Default is "recreate" to provide deterministic deployments.
+	v = strings.TrimSpace(strings.ToLower(v))
+	if v == "" {
+		return "recreate"
+	}
+	switch v {
+	case "recreate", "restart":
+		return v
+	default:
+		return "recreate"
+	}
 }
 
 func appJSON(a *db.App) map[string]any {
@@ -400,6 +415,9 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	case strings.HasPrefix(path, "traefik"):
 		s.handleAdminTraefik(w, r, strings.TrimPrefix(path, "traefik"))
+		return
+	case strings.HasPrefix(path, "maintenance"):
+		s.handleAdminMaintenance(w, r, strings.TrimPrefix(path, "maintenance"))
 		return
 	default:
 		httpx.WriteError(w, http.StatusNotFound, "not found")
@@ -1040,10 +1058,29 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 	}
 	envID := parts[0]
 	if len(parts) == 1 {
-		if r.Method != "GET" {
+		switch r.Method {
+		case "GET":
+			// continue below
+		case "DELETE":
+			if _, err := s.store.GetEnvByID(r.Context(), envID); err != nil {
+				httpx.WriteError(w, http.StatusNotFound, "not found")
+				return
+			}
+			if err := s.deployer.CleanupEnv(r.Context(), envID); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "cleanup failed: "+err.Error())
+				return
+			}
+			if err := s.store.SoftDeleteEnv(r.Context(), envID); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "delete failed")
+				return
+			}
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+			return
+		default:
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+
 		env, err := s.store.GetEnvByID(r.Context(), envID)
 		if err != nil {
 			httpx.WriteError(w, http.StatusNotFound, "not found")
@@ -1074,7 +1111,26 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "deploy" && r.Method == "POST" {
-		if err := s.deployer.ApplyEnv(r.Context(), envID); err != nil {
+		strategy := "recreate"
+		if r.ContentLength > 0 {
+			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "read failed")
+				return
+			}
+			defer httpx.DrainAndClose(r.Body)
+			if len(bytes.TrimSpace(body)) > 0 {
+				var req struct {
+					Strategy string `json:"strategy"`
+				}
+				if err := json.Unmarshal(body, &req); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+					return
+				}
+				strategy = parseDeployStrategy(req.Strategy)
+			}
+		}
+		if err := s.deployer.DeployEnv(r.Context(), envID, strategy); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
 			return
 		}
@@ -1165,6 +1221,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
 	autoDeploy := parseAutoDeployFlag(get("deploy"))
+	deployStrategy := parseDeployStrategy(get("deploy_strategy"))
 	appKey := get("app")
 	envName := get("env")
 	serviceKey := get("service")
@@ -1291,7 +1348,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 
 	deployed := false
 	if autoDeploy {
-		if err := s.deployer.ApplyService(r.Context(), envID, svc.ID); err != nil {
+		if err := s.deployer.DeployService(r.Context(), envID, svc.ID, deployStrategy); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
 			return
 		}
@@ -1325,6 +1382,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	}
 	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
 	autoDeploy := parseAutoDeployFlag(get("deploy"))
+	deployStrategy := parseDeployStrategy(get("deploy_strategy"))
 
 	appKey := get("app")
 	envName := get("env")
@@ -1484,7 +1542,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 
 	deployed := false
 	if autoDeploy {
-		if err := s.deployer.ApplyService(r.Context(), envID, svc.ID); err != nil {
+		if err := s.deployer.DeployService(r.Context(), envID, svc.ID, deployStrategy); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
 			return
 		}
@@ -1560,6 +1618,7 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		return
 	}
 	autoDeploy := parseAutoDeployFlag(strings.TrimSpace(r.FormValue("deploy")))
+	deployStrategy := parseDeployStrategy(strings.TrimSpace(r.FormValue("deploy_strategy")))
 	envID := strings.TrimSpace(r.FormValue("env_id"))
 	sha := strings.TrimSpace(r.FormValue("sha"))
 	ref := strings.TrimSpace(r.FormValue("ref"))
@@ -1684,7 +1743,7 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 
 	deployed := false
 	if autoDeploy {
-		if err := s.deployer.ApplyService(r.Context(), env.ID, svc.ID); err != nil {
+		if err := s.deployer.DeployService(r.Context(), env.ID, svc.ID, deployStrategy); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
 			return
 		}
@@ -1755,13 +1814,15 @@ func (s *Server) handleServiceDeploy(w http.ResponseWriter, r *http.Request, ser
 		return
 	}
 	var req struct {
-		EnvID string `json:"env_id"`
+		EnvID    string `json:"env_id"`
+		Strategy string `json:"strategy"`
 	}
 	if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	req.EnvID = strings.TrimSpace(req.EnvID)
+	req.Strategy = parseDeployStrategy(req.Strategy)
 	if req.EnvID == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
 		return
@@ -1782,7 +1843,7 @@ func (s *Server) handleServiceDeploy(w http.ResponseWriter, r *http.Request, ser
 		return
 	}
 
-	if err := s.deployer.ApplyService(r.Context(), req.EnvID, serviceID); err != nil {
+	if err := s.deployer.DeployService(r.Context(), req.EnvID, serviceID, req.Strategy); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
 		return
 	}
@@ -1807,7 +1868,7 @@ func (s *Server) handleServiceRedeploy(w http.ResponseWriter, r *http.Request, s
 		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
 		return
 	}
-	if err := s.deployer.RecreateService(r.Context(), req.EnvID, serviceID); err != nil {
+	if err := s.deployer.DeployService(r.Context(), req.EnvID, serviceID, "recreate"); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "redeploy failed: "+err.Error())
 		return
 	}

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Artifact, type EnvDetail, type Service, type Slot } from "../../api";
 import { useToast } from "../toast";
@@ -53,6 +53,7 @@ function ServicePanel(props: {
   });
 
   const [autoDeploy, setAutoDeploy] = useState(true);
+  const [deployStrategy, setDeployStrategy] = useState<'recreate' | 'restart'>('recreate');
   const [sha, setSha] = useState("");
   const [ref, setRef] = useState("");
   const [filesBySlotID, setFilesBySlotID] = useState<Record<string, File | null>>({});
@@ -74,6 +75,7 @@ function ServicePanel(props: {
       const form = new FormData();
       form.append("env_id", envId);
       form.append("deploy", autoDeploy ? "1" : "0");
+		form.append("deploy_strategy", deployStrategy);
       if (sha.trim()) form.append("sha", sha.trim());
       if (ref.trim()) form.append("ref", ref.trim());
 
@@ -101,21 +103,12 @@ function ServicePanel(props: {
   });
 
   const deployMutation = useMutation({
-    mutationFn: () => api.deployService(service.id, envId),
+    mutationFn: (strategy: 'recreate' | 'restart') => api.deployService(service.id, envId, strategy),
     onSuccess: () => {
       toast.success("已触发部署");
       queryClient.invalidateQueries({ queryKey: ["serviceStatus", service.id, envId] });
     },
     onError: (e) => toast.error(String(e), "部署失败"),
-  });
-
-  const redeployMutation = useMutation({
-    mutationFn: () => api.redeployService(service.id, envId),
-    onSuccess: () => {
-      toast.success("已触发重建部署");
-      queryClient.invalidateQueries({ queryKey: ["serviceStatus", service.id, envId] });
-    },
-    onError: (e) => toast.error(String(e), "重建失败"),
   });
 
   const artifactsBySlotKey = (artifactsQuery.data?.artifacts_by_slot_key || {}) as Record<string, Artifact>;
@@ -147,11 +140,11 @@ function ServicePanel(props: {
             <button className="btn-secondary" type="button" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>
               {statusQuery.isFetching ? "刷新中..." : "刷新状态"}
             </button>
-            <button className="btn-secondary" type="button" onClick={() => deployMutation.mutate()} disabled={deployMutation.isPending}>
-              {deployMutation.isPending ? "部署中..." : "部署服务"}
+            <button className="btn-secondary" type="button" onClick={() => deployMutation.mutate('restart')} disabled={deployMutation.isPending}>
+              {deployMutation.isPending ? "执行中..." : "快速重启"}
             </button>
-            <button className="btn-secondary" type="button" onClick={() => redeployMutation.mutate()} disabled={redeployMutation.isPending}>
-              {redeployMutation.isPending ? "重建中..." : "重建部署"}
+            <button className="btn-secondary" type="button" onClick={() => deployMutation.mutate('recreate')} disabled={deployMutation.isPending}>
+              {deployMutation.isPending ? "执行中..." : "重建部署"}
             </button>
           </div>
 
@@ -221,6 +214,17 @@ function ServicePanel(props: {
             <p className="help-text">关闭后会更新环境的当前快照（desired），但不会触发容器更新。</p>
           </div>
 
+		  {autoDeploy && (
+			<div className="form-group">
+			  <label>部署方式</label>
+			  <select value={deployStrategy} onChange={(e) => setDeployStrategy(e.target.value as any)}>
+				<option value="recreate">重建部署（down + up，推荐）</option>
+				<option value="restart">快速重启（restart，更快）</option>
+			  </select>
+			  <p className="help-text">重建部署更确定；快速重启适合仅更新 jar/config 文件的场景。</p>
+			</div>
+		  )}
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
             <div className="form-group">
               <label>sha（可选）</label>
@@ -263,6 +267,7 @@ export function EnvDetailPage() {
   const { envId } = useParams<{ envId: string }>();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const envQuery = useQuery<EnvDetail>({
     queryKey: ["env", envId],
@@ -279,7 +284,7 @@ export function EnvDetailPage() {
   });
 
   const deployEnvMutation = useMutation({
-    mutationFn: () => api.deployEnv(envId!),
+    mutationFn: (strategy: 'recreate' | 'restart') => api.deployEnv(envId!, strategy),
     onSuccess: () => {
       toast.success("已触发环境部署");
       queryClient.invalidateQueries({ queryKey: ["env", envId] });
@@ -295,6 +300,19 @@ export function EnvDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["envSnapshots", envId] });
     },
     onError: (e) => toast.error(String(e), "回滚失败"),
+  });
+
+  const deleteEnvMutation = useMutation({
+    mutationFn: () => api.deleteEnv(envId!),
+    onSuccess: () => {
+      toast.success("环境已删除");
+      if (envQuery.data?.app?.id) {
+        navigate(`/apps/${envQuery.data.app.id}`);
+      } else {
+        navigate("/apps");
+      }
+    },
+    onError: (e) => toast.error(String(e), "删除失败"),
   });
 
   const data = envQuery.data;
@@ -343,11 +361,26 @@ export function EnvDetailPage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button
+            className="btn-danger-small"
+            type="button"
+            onClick={() => {
+              if (confirm("确认删除该环境？将停止并清理该环境的运行目录（runtime），并从列表中移除。")) {
+                deleteEnvMutation.mutate();
+              }
+            }}
+            disabled={deleteEnvMutation.isPending}
+          >
+            删除环境
+          </button>
           <button className="btn-secondary" type="button" onClick={() => envQuery.refetch()} disabled={envQuery.isFetching}>
             {envQuery.isFetching ? "刷新中..." : "刷新"}
           </button>
-          <button className="btn-primary" type="button" onClick={() => deployEnvMutation.mutate()} disabled={deployEnvMutation.isPending}>
-            {deployEnvMutation.isPending ? "部署中..." : "部署当前环境"}
+          <button className="btn-secondary" type="button" onClick={() => deployEnvMutation.mutate('restart')} disabled={deployEnvMutation.isPending}>
+            {deployEnvMutation.isPending ? "执行中..." : "快速重启"}
+          </button>
+          <button className="btn-primary" type="button" onClick={() => deployEnvMutation.mutate('recreate')} disabled={deployEnvMutation.isPending}>
+            {deployEnvMutation.isPending ? "执行中..." : "重建部署"}
           </button>
         </div>
       </div>

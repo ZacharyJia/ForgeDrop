@@ -40,26 +40,14 @@ func (d *Deployer) Close() error {
 }
 
 func (d *Deployer) ApplyEnv(ctx context.Context, envID string) error {
-	env, err := d.store.GetEnvByID(ctx, envID)
-	if err != nil {
-		return err
-	}
-	services, err := d.store.ListServicesByApp(ctx, env.AppID)
-	if err != nil {
-		return err
-	}
-	for _, svc := range services {
-		if !svc.Enabled {
-			continue
-		}
-		if err := d.ApplyService(ctx, envID, svc.ID); err != nil {
-			return fmt.Errorf("service %s: %w", svc.ServiceKey, err)
-		}
-	}
-	return nil
+	return d.DeployEnv(ctx, envID, "recreate")
 }
 
 func (d *Deployer) ApplyService(ctx context.Context, envID, serviceID string) error {
+	return d.DeployService(ctx, envID, serviceID, "recreate")
+}
+
+func (d *Deployer) DeployService(ctx context.Context, envID, serviceID, strategy string) error {
 	env, err := d.store.GetEnvByID(ctx, envID)
 	if err != nil {
 		return err
@@ -115,10 +103,17 @@ func (d *Deployer) ApplyService(ctx context.Context, envID, serviceID string) er
 	if strings.TrimSpace(svc.ComposeTemplate) == "" {
 		return fmt.Errorf("compose template is empty; please configure Docker Compose template first")
 	}
-	return d.applyServiceWithCompose(ctx, env, app, svc, artifactPaths, slotPaths)
+	strategy = strings.TrimSpace(strings.ToLower(strategy))
+	if strategy == "" {
+		strategy = "recreate"
+	}
+	if strategy != "recreate" && strategy != "restart" {
+		strategy = "recreate"
+	}
+	return d.applyServiceWithCompose(ctx, env, app, svc, artifactPaths, slotPaths, strategy)
 }
 
-func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app *db.App, svc *db.Service, artifactPaths map[string]string, slotPaths map[string]string) error {
+func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app *db.App, svc *db.Service, artifactPaths map[string]string, slotPaths map[string]string, strategy string) error {
 	networkName, _ := d.store.GetSetting(ctx, "docker_network")
 	namedHostTpl, _ := d.store.GetSetting(ctx, "named_host_template")
 	hostTpl, _ := d.store.GetSetting(ctx, "preview_host_template")
@@ -162,6 +157,12 @@ func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app
 		d.dataDir,
 	)
 
+	// For deterministic deployments, default to down+up. Restart is a fast path
+	// for pure file updates (e.g. jar/config bind mounts).
+	if strategy == "recreate" {
+		_ = d.composeManager.Down(ctx, env.ID, svc.ID, svc.ServiceKey)
+	}
+
 	// Render compose template
 	rendered, err := compose.RenderTemplate(svc.ComposeTemplate, templateData)
 	if err != nil {
@@ -177,11 +178,10 @@ func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app
 	if err := d.composeManager.Up(ctx, env.ID, svc.ID, svc.ServiceKey); err != nil {
 		return fmt.Errorf("docker compose up: %w", err)
 	}
-	// `docker compose up -d` does not restart containers when only bind-mounted
-	// files change (e.g. a new jar uploaded to the same path). Restart ensures the
-	// running process picks up the new artifact.
-	if err := d.composeManager.Restart(ctx, env.ID, svc.ID, svc.ServiceKey); err != nil {
-		return fmt.Errorf("docker compose restart: %w", err)
+	if strategy == "restart" {
+		if err := d.composeManager.Restart(ctx, env.ID, svc.ID, svc.ServiceKey); err != nil {
+			return fmt.Errorf("docker compose restart: %w", err)
+		}
 	}
 
 	d.logf("Deployed service %s (env=%s) using Docker Compose", svc.ServiceKey, env.Name)
@@ -195,12 +195,27 @@ func (d *Deployer) logf(format string, args ...any) {
 }
 
 func (d *Deployer) RecreateService(ctx context.Context, envID, serviceID string) error {
-	svc, err := d.store.GetServiceByID(ctx, serviceID)
+	return d.DeployService(ctx, envID, serviceID, "recreate")
+}
+
+func (d *Deployer) DeployEnv(ctx context.Context, envID, strategy string) error {
+	env, err := d.store.GetEnvByID(ctx, envID)
 	if err != nil {
 		return err
 	}
-	_ = d.composeManager.Down(ctx, envID, svc.ID, svc.ServiceKey)
-	return d.ApplyService(ctx, envID, serviceID)
+	services, err := d.store.ListServicesByApp(ctx, env.AppID)
+	if err != nil {
+		return err
+	}
+	for _, svc := range services {
+		if !svc.Enabled {
+			continue
+		}
+		if err := d.DeployService(ctx, envID, svc.ID, strategy); err != nil {
+			return fmt.Errorf("service %s: %w", svc.ServiceKey, err)
+		}
+	}
+	return nil
 }
 
 func (d *Deployer) CleanupEnv(ctx context.Context, envID string) error {
