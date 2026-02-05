@@ -372,6 +372,7 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 func (s *Store) EnsureDefaults(ctx context.Context) error {
 	def := map[string]string{
 		"base_domain":                "example.com",
+		"named_host_template":        "{service}-{env}.{base_domain}",
 		"preview_host_template":      "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}",
 		"docker_network":             "traefik",
 		"traefik_acme_mode":          "tls",
@@ -850,15 +851,32 @@ func (s *Store) UpsertPreviewEnv(ctx context.Context, appID string, repo Repo, p
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
+
+	// Preview template: a named env called "preview". New PR preview envs inherit
+	// its current_snapshot_id so that config/artifacts can be shared by default.
+	var templateSnapshot sql.NullString
+	_ = s.sql.QueryRowContext(ctx, `SELECT current_snapshot_id FROM envs
+		WHERE app_id=? AND kind='named' AND name='preview' AND deleted_at IS NULL
+		ORDER BY created_at ASC LIMIT 1`, appID).Scan(&templateSnapshot)
+
 	id, err = ids.New()
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.sql.ExecContext(ctx, `INSERT INTO envs(id, app_id, kind, name, repo_id, pr_number, created_at) VALUES(?,?, 'preview', 'preview', ?, ?, datetime('now'))`,
-		id, appID, repo.ID, prNumber); err != nil {
+	if _, err := s.sql.ExecContext(ctx, `INSERT INTO envs(id, app_id, kind, name, repo_id, pr_number, current_snapshot_id, created_at)
+		VALUES(?,?, 'preview', 'preview', ?, ?, ?, datetime('now'))`,
+		id, appID, repo.ID, prNumber, nullableString(nullIfEmpty(templateSnapshot.String))); err != nil {
 		return nil, err
 	}
 	return s.GetEnvByID(ctx, id)
+}
+
+func nullIfEmpty(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (s *Store) ListEnvsByApp(ctx context.Context, appID string) ([]Env, error) {

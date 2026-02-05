@@ -22,6 +22,13 @@
 
 可选：在管理台 Settings 页使用“一键安装/修复 Traefik”来启动一个由 forge-drop 管理的 Traefik 容器（会绑定宿主机 80/443）。
 
+命名环境（prod/staging/dev）的 URL 默认按 `{service}-{env}.{base_domain}` 计算，可在设置里调整 `named_host_template`。
+
+## Preview 模板与 PR 预览
+
+- 系统会创建一个命名环境 `preview` 作为模板环境（可用于共享预览，也用于 PR 预览继承）。
+- 当 CI 上传使用 `env=preview` 并携带 `pr_number` 时，会自动创建/更新一个 PR 专属 preview 环境，并继承模板环境的当前快照。
+
 ## 管理台配置流程（建议顺序）
 
 1. Settings：配置 `base_domain`、`preview_host_template`、`docker_network`

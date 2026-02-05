@@ -103,6 +103,7 @@ export interface EnvDetail {
 
 export interface Settings {
   base_domain: string;
+  named_host_template?: string;
   preview_host_template: string;
   docker_network: string;
   traefik_acme_email?: string;
@@ -206,6 +207,7 @@ export const api = {
     // Only persist editable keys; the GET payload includes computed fields.
     const payload: Record<string, string> = {};
     if (typeof settings.base_domain === 'string') payload.base_domain = settings.base_domain;
+    if (typeof settings.named_host_template === 'string') payload.named_host_template = settings.named_host_template;
     if (typeof settings.preview_host_template === 'string') payload.preview_host_template = settings.preview_host_template;
     if (typeof settings.docker_network === 'string') payload.docker_network = settings.docker_network;
     if (typeof settings.traefik_acme_email === 'string') payload.traefik_acme_email = settings.traefik_acme_email;

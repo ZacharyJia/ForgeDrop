@@ -59,6 +59,7 @@ export function AppDetailPage() {
   const envs = data?.envs ?? [];
   const appKey = app?.app_key || "";
   const baseDomain = settingsQuery.data?.base_domain || "";
+  const namedTpl = settingsQuery.data?.named_host_template || "";
   const previewTpl = settingsQuery.data?.preview_host_template || "";
 
   const envUrls = useMemo(() => {
@@ -72,15 +73,45 @@ export function AppDetailPage() {
         .replaceAll("{base_domain}", baseDomain2);
     };
 
+    const slugDNSLabel = (s: string) => {
+      const v = (s || "").trim().toLowerCase();
+      if (!v) return "env";
+      let out = "";
+      let lastDash = false;
+      for (let i = 0; i < v.length; i++) {
+        const c = v[i];
+        const ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+        if (ok) {
+          out += c;
+          lastDash = false;
+        } else if (!lastDash) {
+          out += '-';
+          lastDash = true;
+        }
+      }
+      out = out.replace(/^-+/, "").replace(/-+$/, "");
+      return out || "env";
+    };
+
+    const renderNamedHost = (tpl: string, appKey2: string, envName: string, serviceKey: string, baseDomain2: string) => {
+      const t = (tpl || "{service}-{env}.{base_domain}").trim();
+      const envSlug = slugDNSLabel(envName);
+      return t
+        .replaceAll("{app}", appKey2)
+        .replaceAll("{env}", envSlug)
+        .replaceAll("{service}", serviceKey)
+        .replaceAll("{base_domain}", baseDomain2);
+    };
+
     const out: Record<string, { label: string; url: string }[]> = {};
     for (const e of envs as any[]) {
       const list: { label: string; url: string }[] = [];
 
-      if (e.kind === "named" && e.name === "prod") {
+      if (e.kind === "named" && baseDomain) {
+        const tpl = (namedTpl || "{service}-{env}.{base_domain}").trim();
         for (const svc of services) {
-          if (svc.prod_host) {
-            list.push({ label: svc.service_key, url: `https://${svc.prod_host}` });
-          }
+          const host = (e.name === "prod" && svc.prod_host) ? svc.prod_host : renderNamedHost(tpl, appKey, e.name, svc.service_key, baseDomain);
+          if (host) list.push({ label: svc.service_key, url: `https://${host}` });
         }
       }
 
@@ -94,7 +125,7 @@ export function AppDetailPage() {
       out[e.id] = list;
     }
     return out;
-  }, [envs, services, baseDomain, previewTpl, appKey]);
+  }, [envs, services, baseDomain, namedTpl, previewTpl, appKey]);
 
   if (isLoading) return <div className="loading">加载中...</div>;
   if (!data || !app) return <div className="error">未找到应用</div>;
@@ -246,7 +277,7 @@ export function AppDetailPage() {
                       {envUrls[e.id].length > 6 && <div className="muted" style={{ marginTop: "0.25rem" }}>更多入口请进入环境详情查看</div>}
                     </>
                   ) : (
-                    <div className="muted">暂无可计算的 URL（prod 需配置 service.prod_host；preview 需 repo+pr）</div>
+                    <div className="muted">暂无可计算的 URL（请先配置 base_domain / host template / 服务）</div>
                   )}
                   <div className="repo-meta">创建时间：{new Date(e.created_at).toLocaleString()}</div>
                 </div>

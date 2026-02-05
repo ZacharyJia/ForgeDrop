@@ -58,6 +58,7 @@ export function DocsPage() {
                 <li>DNS 通配解析：<code>*.yourdomain.com</code> 指向服务器 IP（用于 preview 子域名）</li>
                 <li>Traefik 与 forge-drop 创建的业务容器加入同一 Docker network（例如 <code>traefik</code>）</li>
               </ol>
+              <p className="muted">命名环境（prod/staging/dev）的 URL 默认按 <code>{"{service}-{env}.{base_domain}"}</code> 计算，可在设置页调整模板。</p>
             </div>
           </section>
 
@@ -177,10 +178,13 @@ export function DocsPage() {
             <h2>Preview 环境（PR 预览）</h2>
             <div className="info-box">
               <p>
-                当 CI 上传时使用 <code>env=preview</code> 并携带 <code>pr_number</code>，系统会为该 PR 创建/更新独立的预览环境。
+                系统默认会创建一个命名环境 <code>preview</code> 作为模板环境（可用于共享预览，也用于 PR 预览的配置/版本继承）。
               </p>
               <p>
-                当 Forgejo webhook 收到 <code>pull_request closed</code> 后，会自动清理对应 preview 的 runtime 目录与 compose project。
+                当 CI 上传时使用 <code>env=preview</code> 并携带 <code>pr_number</code>，系统会为该 PR 创建/更新独立的预览环境，并继承模板环境的当前快照。
+              </p>
+              <p>
+                当 Forgejo webhook 收到 <code>pull_request closed</code> 后，会自动清理对应 PR preview 的 runtime 目录与 compose project。
               </p>
               <p className="muted">提示：你仍然需要 DNS 通配解析与 Traefik 路由规则才能访问 preview URL。</p>
             </div>

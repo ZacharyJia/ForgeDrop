@@ -18,6 +18,7 @@ export function SettingsPage() {
       // Only keep editable fields; the settings response includes computed values.
       setFormData({
         base_domain: settings.base_domain,
+        named_host_template: settings.named_host_template || "{service}-{env}.{base_domain}",
         preview_host_template: settings.preview_host_template,
         docker_network: settings.docker_network,
         traefik_acme_email: settings.traefik_acme_email || "",
@@ -121,6 +122,19 @@ export function SettingsPage() {
             <p className="help-text">
               预览环境域名模板，可用变量：
               {"{app}"}、{"{repoSlug}"}、{"{pr}"}、{"{service}"}、{"{base_domain}"}
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label>命名环境域名模板</label>
+            <input
+              type="text"
+              value={formData.named_host_template || ""}
+              onChange={(e) => setFormData({ ...formData, named_host_template: e.target.value })}
+              placeholder="{service}-{env}.{base_domain}"
+            />
+            <p className="help-text">
+              用于 prod/staging/dev 等命名环境的 URL 生成，可用变量：{"{app}"}、{"{env}"}、{"{service}"}、{"{base_domain}"}
             </p>
           </div>
         </div>

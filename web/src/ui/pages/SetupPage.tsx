@@ -49,6 +49,7 @@ export function SetupPage() {
 			// Persist basic settings + Traefik ACME mode.
 			await api.updateSettings({
 				base_domain: baseDomain.trim(),
+				named_host_template: "{service}-{env}.{base_domain}",
 				docker_network: dockerNetwork.trim() || "traefik",
 				traefik_acme_email: acmeEmail.trim(),
 				traefik_acme_mode: "dns-alidns",

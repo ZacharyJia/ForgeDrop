@@ -120,6 +120,7 @@ func (d *Deployer) ApplyService(ctx context.Context, envID, serviceID string) er
 
 func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app *db.App, svc *db.Service, artifactPaths map[string]string, slotPaths map[string]string) error {
 	networkName, _ := d.store.GetSetting(ctx, "docker_network")
+	namedHostTpl, _ := d.store.GetSetting(ctx, "named_host_template")
 	hostTpl, _ := d.store.GetSetting(ctx, "preview_host_template")
 	baseDomain, _ := d.store.GetSetting(ctx, "base_domain")
 
@@ -138,8 +139,16 @@ func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app
 		if host != "" {
 			hostRule = host
 		}
-	} else if env.Kind == "named" && env.Name == "prod" && strings.TrimSpace(svc.ProdHost) != "" {
-		hostRule = strings.TrimSpace(svc.ProdHost)
+	} else if env.Kind == "named" {
+		// For named envs, always derive a host (prod host is just an override).
+		if env.Name == "prod" && strings.TrimSpace(svc.ProdHost) != "" {
+			hostRule = strings.TrimSpace(svc.ProdHost)
+		} else {
+			host := renderNamedHostTemplate(namedHostTpl, app.AppKey, env.Name, svc.ServiceKey, baseDomain)
+			if host != "" {
+				hostRule = host
+			}
+		}
 	}
 
 	// Build template data
@@ -220,6 +229,7 @@ func (d *Deployer) ServiceURL(ctx context.Context, envID, serviceID string) (str
 		return "", false
 	}
 	baseDomain, _ := d.store.GetSetting(ctx, "base_domain")
+	namedTpl, _ := d.store.GetSetting(ctx, "named_host_template")
 	tpl, _ := d.store.GetSetting(ctx, "preview_host_template")
 
 	host := ""
@@ -233,13 +243,65 @@ func (d *Deployer) ServiceURL(ctx context.Context, envID, serviceID string) (str
 			pr = *env.PRNumber
 		}
 		host = renderHostTemplate(tpl, app.AppKey, repoSlug, pr, svc.ServiceKey, baseDomain)
-	} else if env.Kind == "named" && env.Name == "prod" && strings.TrimSpace(svc.ProdHost) != "" {
-		host = strings.TrimSpace(svc.ProdHost)
+	} else if env.Kind == "named" {
+		if env.Name == "prod" && strings.TrimSpace(svc.ProdHost) != "" {
+			host = strings.TrimSpace(svc.ProdHost)
+		} else {
+			host = renderNamedHostTemplate(namedTpl, app.AppKey, env.Name, svc.ServiceKey, baseDomain)
+		}
 	}
 	if host == "" {
 		return "", false
 	}
 	return "https://" + host, true
+}
+
+func renderNamedHostTemplate(tpl, appKey, envName, serviceKey, baseDomain string) string {
+	tpl = strings.TrimSpace(tpl)
+	if tpl == "" {
+		// Default to a stable, readable host for any named env.
+		// Example: api-staging.example.com
+		tpl = "{service}-{env}.{base_domain}"
+	}
+	envSlug := slugDNSLabel(envName)
+	replacer := strings.NewReplacer(
+		"{app}", appKey,
+		"{env}", envSlug,
+		"{service}", serviceKey,
+		"{base_domain}", baseDomain,
+	)
+	host := replacer.Replace(tpl)
+	host = strings.ReplaceAll(host, "..", ".")
+	host = strings.Trim(host, ".")
+	return host
+}
+
+func slugDNSLabel(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return "env"
+	}
+	// Keep ASCII letters/digits, convert everything else to '-'.
+	var b strings.Builder
+	lastDash := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		ok := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+		if ok {
+			b.WriteByte(c)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "env"
+	}
+	return out
 }
 
 func (d *Deployer) ServiceStatus(ctx context.Context, envID, serviceID string) (map[string]any, error) {

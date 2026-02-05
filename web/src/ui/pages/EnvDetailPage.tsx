@@ -305,7 +305,7 @@ export function EnvDetailPage() {
     if (!data?.env) return null;
     if (data.env.kind === "named") return `${data.env.name}（命名环境）`;
     if (data.env.kind === "preview") {
-      const pr = data.env.pr_number ? `PR #${data.env.pr_number}` : "占位";
+      const pr = data.env.pr_number ? `PR #${data.env.pr_number}` : "-";
       return `preview（${pr}）`;
     }
     return data.env.name;
@@ -355,7 +355,7 @@ export function EnvDetailPage() {
       <div className="info-box">
         <div className="info-item"><strong>当前快照（desired）：</strong> {data.current_snapshot_id ? <code>{String(data.current_snapshot_id)}</code> : <span className="muted">暂无</span>}</div>
         {data.env.kind === "preview" && !data.env.pr_number && (
-          <div className="muted">这是 preview 占位环境。真实 preview 会在首次上传 PR artifact 时自动创建。</div>
+          <div className="muted">这是 preview 环境，但缺少 PR 信息（repo/pr）。通常 PR 预览环境会由 CI 上传时自动创建。</div>
         )}
 
         {serviceLinks.length > 0 && (

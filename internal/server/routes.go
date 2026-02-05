@@ -428,6 +428,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 	switch r.Method {
 	case "GET":
 		baseDomain, _ := s.store.GetSetting(r.Context(), "base_domain")
+		namedTpl, _ := s.store.GetSetting(r.Context(), "named_host_template")
 		tpl, _ := s.store.GetSetting(r.Context(), "preview_host_template")
 		netw, _ := s.store.GetSetting(r.Context(), "docker_network")
 		email, _ := s.store.GetSetting(r.Context(), "traefik_acme_email")
@@ -435,6 +436,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		regionID, _ := s.store.GetSetting(r.Context(), "traefik_alicloud_region_id")
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{
 			"base_domain":                baseDomain,
+			"named_host_template":        namedTpl,
 			"preview_host_template":      tpl,
 			"docker_network":             netw,
 			"traefik_acme_email":         email,
@@ -454,7 +456,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		}
 		for k, v := range req {
 			switch k {
-			case "base_domain", "preview_host_template", "docker_network", "traefik_acme_email", "traefik_acme_mode", "traefik_alicloud_region_id":
+			case "base_domain", "named_host_template", "preview_host_template", "docker_network", "traefik_acme_email", "traefik_acme_mode", "traefik_alicloud_region_id":
 				if err := s.store.SetSetting(r.Context(), k, strings.TrimSpace(v)); err != nil {
 					httpx.WriteError(w, http.StatusInternalServerError, "save failed")
 					return
@@ -658,7 +660,7 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 			}
 			// Make first-run smoother: create default envs.
 			_, _ = s.store.EnsureNamedEnv(r.Context(), app.ID, "prod")
-			_, _ = s.store.EnsurePreviewPlaceholderEnv(r.Context(), app.ID)
+			_, _ = s.store.EnsureNamedEnv(r.Context(), app.ID, "preview")
 			httpx.WriteJSON(w, http.StatusCreated, appJSON(app))
 			return
 		default:
