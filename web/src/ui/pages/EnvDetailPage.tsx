@@ -57,6 +57,18 @@ function ServicePanel(props: {
   const [ref, setRef] = useState("");
   const [filesBySlotID, setFilesBySlotID] = useState<Record<string, File | null>>({});
 
+  const [logsTail, setLogsTail] = useState<number>(200);
+  const [logsText, setLogsText] = useState<string>("");
+
+  const fetchLogsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.getServiceLogs(service.id, envId, logsTail);
+      return res.logs;
+    },
+    onSuccess: (logs) => setLogsText(logs),
+    onError: (e) => toast.error(String(e), "日志获取失败"),
+  });
+
   const uploadMutation = useMutation({
     mutationFn: async () => {
       const form = new FormData();
@@ -155,6 +167,26 @@ function ServicePanel(props: {
           {!statusQuery.data?.ps && !statusQuery.isPending && (
             <div className="muted" style={{ marginTop: "0.5rem" }}>暂无运行状态（可能尚未部署）。</div>
           )}
+
+          <div className="info-box" style={{ marginTop: "0.75rem" }}>
+            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>日志 tail</label>
+                <input
+                  type="number"
+                  value={logsTail}
+                  onChange={(e) => setLogsTail(parseInt(e.target.value || "200", 10))}
+                  style={{ width: "120px" }}
+                />
+              </div>
+              <button className="btn-secondary" type="button" onClick={() => fetchLogsMutation.mutate()} disabled={fetchLogsMutation.isPending}>
+                {fetchLogsMutation.isPending ? "拉取中..." : "查看日志"}
+              </button>
+            </div>
+            {logsText && (
+              <pre style={{ marginTop: "0.75rem", whiteSpace: "pre-wrap" }}>{logsText}</pre>
+            )}
+          </div>
         </div>
 
         <div className="info-box">
