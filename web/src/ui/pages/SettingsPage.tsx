@@ -24,6 +24,8 @@ export function SettingsPage() {
         traefik_acme_email: settings.traefik_acme_email || "",
         traefik_acme_mode: settings.traefik_acme_mode || "tls",
         traefik_alicloud_region_id: settings.traefik_alicloud_region_id || "cn-hangzhou",
+        traefik_wildcard_enabled: settings.traefik_wildcard_enabled || "1",
+        traefik_wildcard_include_apex: settings.traefik_wildcard_include_apex || "0",
       });
     }
   }, [settings]);
@@ -223,6 +225,33 @@ export function SettingsPage() {
                   )}
                 </div>
               </div>
+
+			  <div className="info-box">
+				<div className="info-item"><strong>通配符证书（Wildcard）</strong> <span className="muted">（推荐）</span></div>
+				<div className="form-group" style={{ marginTop: "0.75rem" }}>
+				  <label>
+					<input
+					  type="checkbox"
+					  checked={(formData.traefik_wildcard_enabled || "0") === "1"}
+					  onChange={(e) => setFormData({ ...formData, traefik_wildcard_enabled: e.target.checked ? "1" : "0" })}
+					/>{" "}
+					申请 <code>*.{formData.base_domain || "base_domain"}</code> 的证书
+				  </label>
+				  <p className="help-text">开启后，Traefik 会自动申请并复用通配符证书，避免为每个子域重复签发。</p>
+				</div>
+				<div className="form-group" style={{ marginTop: "0.5rem" }}>
+				  <label>
+					<input
+					  type="checkbox"
+					  checked={(formData.traefik_wildcard_include_apex || "0") === "1"}
+					  onChange={(e) => setFormData({ ...formData, traefik_wildcard_include_apex: e.target.checked ? "1" : "0" })}
+					/>{" "}
+					同时包含根域名（{formData.base_domain || "example.com"}）
+				  </label>
+				  <p className="help-text">默认关闭，避免 root + wildcard 的双挑战缓存问题。</p>
+				</div>
+				<div className="muted">修改后需要点击“一键安装/修复 Traefik”让配置生效。</div>
+			  </div>
             </>
           )}
 

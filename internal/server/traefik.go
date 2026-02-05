@@ -246,6 +246,12 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 
 	baseDomain, _ := s.store.GetSetting(ctx, "base_domain")
 	baseDomain = strings.TrimSpace(baseDomain)
+	certResolver := "le"
+
+	wildEnabled, _ := s.store.GetSetting(ctx, "traefik_wildcard_enabled")
+	wildIncludeApex, _ := s.store.GetSetting(ctx, "traefik_wildcard_include_apex")
+	wildcardOn := strings.TrimSpace(wildEnabled) == "1"
+	wildcardApexOn := strings.TrimSpace(wildIncludeApex) == "1"
 	if req.EnableDashboard {
 		host := strings.TrimSpace(req.DashboardHost)
 		if host == "" {
@@ -258,6 +264,11 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 			return nil, fmt.Errorf("dashboard_host 必须是完整域名，例如 traefik.example.com")
 		}
 		req.DashboardHost = host
+	}
+	if strings.EqualFold(acmeMode, "dns-alidns") && wildcardOn {
+		if baseDomain == "" {
+			return nil, fmt.Errorf("base_domain 未设置，无法申请通配符证书")
+		}
 	}
 
 	// Ensure docker network exists.
@@ -322,12 +333,14 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 	}
 
 	// Start traefik.
-	image := "traefik:v3.4"
+	image := "traefik:v3.6"
 	args := []string{
 		"run", "-d",
 		"--name", managedTraefikContainerName,
 		"--restart", "unless-stopped",
 		"--label", managedTraefikLabelKey + "=true",
+		// Required because exposedByDefault=false; we add our own routers via labels.
+		"--label", "traefik.enable=true",
 		"--network", networkName,
 		"-p", "80:80",
 		"-p", "443:443",
@@ -350,13 +363,36 @@ func (s *Server) installOrRepairTraefik(ctx context.Context, req traefikInstallR
 		host := strings.TrimSpace(req.DashboardHost)
 		// Expose dashboard via internal service `api@internal`.
 		args = append(args[:len(args)-1],
-			"--label", "traefik.enable=true",
 			"--label", "traefik.http.routers.traefik-dashboard.rule=Host(`"+host+"`)",
 			"--label", "traefik.http.routers.traefik-dashboard.entrypoints=websecure",
 			"--label", "traefik.http.routers.traefik-dashboard.tls=true",
+			"--label", "traefik.http.routers.traefik-dashboard.tls.certresolver="+certResolver,
 			"--label", "traefik.http.routers.traefik-dashboard.service=api@internal",
 			image,
 		)
+	}
+
+	// Seed a wildcard certificate at startup.
+	// This relies on DNS-01 and avoids repeated per-host certificate issuance.
+	if strings.EqualFold(acmeMode, "dns-alidns") && wildcardOn {
+		seedHost := "acme-wildcard." + baseDomain
+		mainDomain := "*." + baseDomain
+		args = append(args[:len(args)-1],
+			"--label", "traefik.http.routers.fd-acme-wildcard.rule=Host(`"+seedHost+"`)",
+			"--label", "traefik.http.routers.fd-acme-wildcard.entrypoints=websecure",
+			"--label", "traefik.http.routers.fd-acme-wildcard.tls=true",
+			"--label", "traefik.http.routers.fd-acme-wildcard.tls.certresolver="+certResolver,
+			"--label", "traefik.http.routers.fd-acme-wildcard.tls.domains[0].main="+mainDomain,
+			"--label", "traefik.http.routers.fd-acme-wildcard.service=api@internal",
+			image,
+		)
+		if wildcardApexOn {
+			args = append(args[:len(args)-1],
+				"--label", "traefik.http.routers.fd-acme-wildcard.tls.domains[0].main="+baseDomain,
+				"--label", "traefik.http.routers.fd-acme-wildcard.tls.domains[0].sans="+mainDomain,
+				image,
+			)
+		}
 	}
 
 	if _, err := dockerCmd(ctx, args...); err != nil {

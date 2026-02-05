@@ -24,6 +24,8 @@
 
 命名环境（prod/staging/dev）的 URL 默认按 `{app}-{service}-{env}.{base_domain}` 计算，可在设置里调整 `named_host_template`。
 
+推荐：在 DNS-01（Aliyun）模式下启用通配符证书（`*.{base_domain}`），避免为每个子域名重复签发。
+
 ## Preview 模板与 PR 预览
 
 - 系统会创建一个命名环境 `preview` 作为模板环境（可用于共享预览，也用于 PR 预览继承）。

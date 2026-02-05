@@ -434,18 +434,22 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		email, _ := s.store.GetSetting(r.Context(), "traefik_acme_email")
 		acmeMode, _ := s.store.GetSetting(r.Context(), "traefik_acme_mode")
 		regionID, _ := s.store.GetSetting(r.Context(), "traefik_alicloud_region_id")
+		wild, _ := s.store.GetSetting(r.Context(), "traefik_wildcard_enabled")
+		wildApex, _ := s.store.GetSetting(r.Context(), "traefik_wildcard_include_apex")
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{
-			"base_domain":                baseDomain,
-			"named_host_template":        namedTpl,
-			"preview_host_template":      tpl,
-			"docker_network":             netw,
-			"traefik_acme_email":         email,
-			"traefik_acme_mode":          acmeMode,
-			"traefik_alicloud_region_id": regionID,
-			"artifact_upload_url":        s.baseURL(r) + "/api/v1/artifacts/upload",
-			"forgejo_webhook_url":        s.baseURL(r) + "/webhooks/forgejo",
-			"preview_hosting_note":       "configure wildcard DNS and Traefik separately",
-			"requires_traefik_label":     true,
+			"base_domain":                   baseDomain,
+			"named_host_template":           namedTpl,
+			"preview_host_template":         tpl,
+			"docker_network":                netw,
+			"traefik_acme_email":            email,
+			"traefik_acme_mode":             acmeMode,
+			"traefik_alicloud_region_id":    regionID,
+			"traefik_wildcard_enabled":      wild,
+			"traefik_wildcard_include_apex": wildApex,
+			"artifact_upload_url":           s.baseURL(r) + "/api/v1/artifacts/upload",
+			"forgejo_webhook_url":           s.baseURL(r) + "/webhooks/forgejo",
+			"preview_hosting_note":          "configure wildcard DNS and Traefik separately",
+			"requires_traefik_label":        true,
 		})
 		return
 	case "PUT":
@@ -456,7 +460,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		}
 		for k, v := range req {
 			switch k {
-			case "base_domain", "named_host_template", "preview_host_template", "docker_network", "traefik_acme_email", "traefik_acme_mode", "traefik_alicloud_region_id":
+			case "base_domain", "named_host_template", "preview_host_template", "docker_network", "traefik_acme_email", "traefik_acme_mode", "traefik_alicloud_region_id", "traefik_wildcard_enabled", "traefik_wildcard_include_apex":
 				if err := s.store.SetSetting(r.Context(), k, strings.TrimSpace(v)); err != nil {
 					httpx.WriteError(w, http.StatusInternalServerError, "save failed")
 					return
@@ -1915,6 +1919,7 @@ func (s *Server) handleComposeTemplateExample(w http.ResponseWriter, r *http.Req
       - traefik.http.routers.{{.RouterName}}.rule=Host(` + "`{{.Host}}`" + `)
       - traefik.http.routers.{{.RouterName}}.entrypoints={{.EntryPoints}}
       - traefik.http.routers.{{.RouterName}}.tls=true
+      - traefik.http.routers.{{.RouterName}}.tls.certresolver=le
       - traefik.http.services.{{.TraefikService}}.loadbalancer.server.port={{.Port}}
     networks:
       - {{.Network}}

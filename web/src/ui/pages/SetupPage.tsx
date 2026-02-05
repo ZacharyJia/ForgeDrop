@@ -59,6 +59,8 @@ export function SetupPage() {
 				traefik_acme_email: acmeEmail.trim(),
 				traefik_acme_mode: "dns-alidns",
 				traefik_alicloud_region_id: aliRegion.trim() || "cn-hangzhou",
+				traefik_wildcard_enabled: "1",
+				traefik_wildcard_include_apex: "0",
 			});
 			await api.setTraefikAliyunCredentials(aliAccessKey.trim(), aliSecretKey.trim());
 			await api.installTraefik({

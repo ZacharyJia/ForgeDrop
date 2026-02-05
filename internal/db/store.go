@@ -371,12 +371,14 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 
 func (s *Store) EnsureDefaults(ctx context.Context) error {
 	def := map[string]string{
-		"base_domain":                "example.com",
-		"named_host_template":        "{app}-{service}-{env}.{base_domain}",
-		"preview_host_template":      "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}",
-		"docker_network":             "traefik",
-		"traefik_acme_mode":          "tls",
-		"traefik_alicloud_region_id": "cn-hangzhou",
+		"base_domain":                   "example.com",
+		"named_host_template":           "{app}-{service}-{env}.{base_domain}",
+		"preview_host_template":         "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}",
+		"docker_network":                "traefik",
+		"traefik_acme_mode":             "tls",
+		"traefik_alicloud_region_id":    "cn-hangzhou",
+		"traefik_wildcard_enabled":      "1",
+		"traefik_wildcard_include_apex": "0",
 	}
 	for k, v := range def {
 		_, err := s.GetSetting(ctx, k)

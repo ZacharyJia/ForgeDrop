@@ -187,6 +187,7 @@ export function DocsPage() {
                 当 Forgejo webhook 收到 <code>pull_request closed</code> 后，会自动清理对应 PR preview 的 runtime 目录与 compose project。
               </p>
               <p className="muted">提示：你仍然需要 DNS 通配解析与 Traefik 路由规则才能访问 preview URL。</p>
+              <p className="muted">推荐：DNS-01 模式下启用通配符证书（<code>{"*."}{"{base_domain}"}</code>），避免每个子域重复签发。</p>
             </div>
           </section>
 

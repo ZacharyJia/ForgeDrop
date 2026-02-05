@@ -109,6 +109,8 @@ export interface Settings {
   traefik_acme_email?: string;
   traefik_acme_mode?: string;
   traefik_alicloud_region_id?: string;
+  traefik_wildcard_enabled?: string;
+  traefik_wildcard_include_apex?: string;
   artifact_upload_url: string;
   forgejo_webhook_url: string;
 }
@@ -218,6 +220,8 @@ export const api = {
     if (typeof settings.traefik_acme_email === 'string') payload.traefik_acme_email = settings.traefik_acme_email;
     if (typeof settings.traefik_acme_mode === 'string') payload.traefik_acme_mode = settings.traefik_acme_mode;
     if (typeof settings.traefik_alicloud_region_id === 'string') payload.traefik_alicloud_region_id = settings.traefik_alicloud_region_id;
+    if (typeof settings.traefik_wildcard_enabled === 'string') payload.traefik_wildcard_enabled = settings.traefik_wildcard_enabled;
+    if (typeof settings.traefik_wildcard_include_apex === 'string') payload.traefik_wildcard_include_apex = settings.traefik_wildcard_include_apex;
     await apiFetch('/api/v1/admin/settings', {
       method: 'PUT',
       body: JSON.stringify(payload),
