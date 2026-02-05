@@ -52,35 +52,30 @@ export function AppDetailPage() {
     },
   });
 
-  if (isLoading) {
-    return <div className="loading">加载中...</div>;
-  }
-
-  if (!data) {
-    return <div className="error">未找到应用</div>;
-  }
-
-  const app = data.app;
-  const services = data.services ?? [];
-  const envs = data.envs ?? [];
-
-  const renderPreviewHost = (tpl: string, appKey: string, repoSlug: string, pr: number, serviceKey: string, baseDomain: string) => {
-    const t = (tpl || "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}").trim();
-    return t
-      .replaceAll("{app}", appKey)
-      .replaceAll("{repoSlug}", repoSlug)
-      .replaceAll("{pr}", String(pr))
-      .replaceAll("{service}", serviceKey)
-      .replaceAll("{base_domain}", baseDomain);
-  };
+  // Hooks must not be conditional: compute derived values with safe defaults
+  // before returning early for loading/error.
+  const app = data?.app;
+  const services = data?.services ?? [];
+  const envs = data?.envs ?? [];
+  const appKey = app?.app_key || "";
+  const baseDomain = settingsQuery.data?.base_domain || "";
+  const previewTpl = settingsQuery.data?.preview_host_template || "";
 
   const envUrls = useMemo(() => {
-    const baseDomain = settingsQuery.data?.base_domain || "";
-    const tpl = settingsQuery.data?.preview_host_template || "";
-    const out: Record<string, { label: string; url: string }[]> = {};
+    const renderPreviewHost = (tpl: string, appKey2: string, repoSlug: string, pr: number, serviceKey: string, baseDomain2: string) => {
+      const t = (tpl || "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}").trim();
+      return t
+        .replaceAll("{app}", appKey2)
+        .replaceAll("{repoSlug}", repoSlug)
+        .replaceAll("{pr}", String(pr))
+        .replaceAll("{service}", serviceKey)
+        .replaceAll("{base_domain}", baseDomain2);
+    };
 
-    for (const e of envs) {
+    const out: Record<string, { label: string; url: string }[]> = {};
+    for (const e of envs as any[]) {
       const list: { label: string; url: string }[] = [];
+
       if (e.kind === "named" && e.name === "prod") {
         for (const svc of services) {
           if (svc.prod_host) {
@@ -88,16 +83,21 @@ export function AppDetailPage() {
           }
         }
       }
-      if (e.kind === "preview" && e.repo_slug && e.pr_number && baseDomain) {
+
+      if (e.kind === "preview" && e.repo_slug && e.pr_number && baseDomain && appKey) {
         for (const svc of services) {
-          const host = renderPreviewHost(tpl, app.app_key, e.repo_slug, e.pr_number, svc.service_key, baseDomain);
+          const host = renderPreviewHost(previewTpl, appKey, e.repo_slug, e.pr_number, svc.service_key, baseDomain);
           if (host) list.push({ label: svc.service_key, url: `https://${host}` });
         }
       }
+
       out[e.id] = list;
     }
     return out;
-  }, [envs, services, settingsQuery.data, app.app_key]);
+  }, [envs, services, baseDomain, previewTpl, appKey]);
+
+  if (isLoading) return <div className="loading">加载中...</div>;
+  if (!data || !app) return <div className="error">未找到应用</div>;
 
   return (
     <div className="app-detail-page">
