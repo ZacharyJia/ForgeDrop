@@ -372,7 +372,7 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 func (s *Store) EnsureDefaults(ctx context.Context) error {
 	def := map[string]string{
 		"base_domain":                "example.com",
-		"named_host_template":        "{service}-{env}.{base_domain}",
+		"named_host_template":        "{app}-{service}-{env}.{base_domain}",
 		"preview_host_template":      "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}",
 		"docker_network":             "traefik",
 		"traefik_acme_mode":          "tls",

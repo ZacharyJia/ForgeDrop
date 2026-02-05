@@ -22,7 +22,7 @@
 
 可选：在管理台 Settings 页使用“一键安装/修复 Traefik”来启动一个由 forge-drop 管理的 Traefik 容器（会绑定宿主机 80/443）。
 
-命名环境（prod/staging/dev）的 URL 默认按 `{service}-{env}.{base_domain}` 计算，可在设置里调整 `named_host_template`。
+命名环境（prod/staging/dev）的 URL 默认按 `{app}-{service}-{env}.{base_domain}` 计算，可在设置里调整 `named_host_template`。
 
 ## Preview 模板与 PR 预览
 

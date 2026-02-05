@@ -260,8 +260,8 @@ func renderNamedHostTemplate(tpl, appKey, envName, serviceKey, baseDomain string
 	tpl = strings.TrimSpace(tpl)
 	if tpl == "" {
 		// Default to a stable, readable host for any named env.
-		// Example: api-staging.example.com
-		tpl = "{service}-{env}.{base_domain}"
+		// Example: myapp-api-staging.example.com
+		tpl = "{app}-{service}-{env}.{base_domain}"
 	}
 	envSlug := slugDNSLabel(envName)
 	replacer := strings.NewReplacer(

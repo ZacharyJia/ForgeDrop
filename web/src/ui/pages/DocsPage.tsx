@@ -58,7 +58,7 @@ export function DocsPage() {
                 <li>DNS 通配解析：<code>*.yourdomain.com</code> 指向服务器 IP（用于 preview 子域名）</li>
                 <li>Traefik 与 forge-drop 创建的业务容器加入同一 Docker network（例如 <code>traefik</code>）</li>
               </ol>
-              <p className="muted">命名环境（prod/staging/dev）的 URL 默认按 <code>{"{service}-{env}.{base_domain}"}</code> 计算，可在设置页调整模板。</p>
+              <p className="muted">命名环境（prod/staging/dev）的 URL 默认按 <code>{"{app}-{service}-{env}.{base_domain}"}</code> 计算，可在设置页调整模板。</p>
             </div>
           </section>
 

@@ -94,7 +94,7 @@ export function AppDetailPage() {
     };
 
     const renderNamedHost = (tpl: string, appKey2: string, envName: string, serviceKey: string, baseDomain2: string) => {
-      const t = (tpl || "{service}-{env}.{base_domain}").trim();
+      const t = (tpl || "{app}-{service}-{env}.{base_domain}").trim();
       const envSlug = slugDNSLabel(envName);
       return t
         .replaceAll("{app}", appKey2)
@@ -108,7 +108,7 @@ export function AppDetailPage() {
       const list: { label: string; url: string }[] = [];
 
       if (e.kind === "named" && baseDomain) {
-        const tpl = (namedTpl || "{service}-{env}.{base_domain}").trim();
+        const tpl = (namedTpl || "{app}-{service}-{env}.{base_domain}").trim();
         for (const svc of services) {
           const host = (e.name === "prod" && svc.prod_host) ? svc.prod_host : renderNamedHost(tpl, appKey, e.name, svc.service_key, baseDomain);
           if (host) list.push({ label: svc.service_key, url: `https://${host}` });
