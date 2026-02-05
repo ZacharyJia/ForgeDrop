@@ -15,7 +15,12 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (settings) {
-      setFormData(settings);
+      // Only keep editable fields; the settings response includes computed values.
+      setFormData({
+        base_domain: settings.base_domain,
+        preview_host_template: settings.preview_host_template,
+        docker_network: settings.docker_network,
+      });
     }
   }, [settings]);
 

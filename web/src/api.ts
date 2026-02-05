@@ -68,6 +68,39 @@ export interface APIToken {
   revoked_at?: string;
 }
 
+export interface Artifact {
+  id: string;
+  app_id: string;
+  service_id: string;
+  slot_id: string;
+  repo_id: string;
+  sha: string;
+  ref: string;
+  pr_number?: number | null;
+  original_filename: string;
+  size_bytes: number;
+  sha256_hex: string;
+  stored_path: string;
+  created_at: string;
+}
+
+export interface Snapshot {
+  id: string;
+  env_id: string;
+  created_at: string;
+  note: string;
+  created_by_user_id?: string | null;
+  created_by_token_id?: string | null;
+}
+
+export interface EnvDetail {
+  env: Env;
+  app: App;
+  services: Service[];
+  current_snapshot_id?: string | null;
+  slots_by_service: Record<string, Slot[]>;
+}
+
 export interface Settings {
   base_domain: string;
   preview_host_template: string;
@@ -104,6 +137,30 @@ export const api = {
     });
   },
 
+  // Envs
+  async getEnv(envId: string): Promise<EnvDetail> {
+    return apiFetch(`/api/v1/admin/envs/${envId}`);
+  },
+
+  async deployEnv(envId: string): Promise<{ ok: boolean }> {
+    return apiFetch(`/api/v1/admin/envs/${envId}/deploy`, { method: 'POST' });
+  },
+
+  async listEnvSnapshots(envId: string): Promise<Snapshot[]> {
+    return apiFetch(`/api/v1/admin/envs/${envId}/snapshots`);
+  },
+
+  async rollbackEnv(envId: string, snapshotId: string): Promise<{ ok: boolean }> {
+    return apiFetch(`/api/v1/admin/envs/${envId}/rollback`, {
+      method: 'POST',
+      body: JSON.stringify({ snapshot_id: snapshotId }),
+    });
+  },
+
+  async getEnvServiceSlotArtifacts(envId: string, serviceId: string): Promise<{ snapshot_id: string | null; artifacts_by_slot_key: Record<string, Artifact> }> {
+    return apiFetch(`/api/v1/admin/envs/${envId}/services/${serviceId}/slot-artifacts`);
+  },
+
   // Auth
   async getMe(): Promise<User> {
     return apiFetch('/api/v1/admin/me');
@@ -126,9 +183,14 @@ export const api = {
   },
 
   async updateSettings(settings: Partial<Settings>): Promise<void> {
+    // Only persist editable keys; the GET payload includes computed fields.
+    const payload: Record<string, string> = {};
+    if (typeof settings.base_domain === 'string') payload.base_domain = settings.base_domain;
+    if (typeof settings.preview_host_template === 'string') payload.preview_host_template = settings.preview_host_template;
+    if (typeof settings.docker_network === 'string') payload.docker_network = settings.docker_network;
     await apiFetch('/api/v1/admin/settings', {
       method: 'PUT',
-      body: JSON.stringify(settings),
+      body: JSON.stringify(payload),
     });
   },
 
@@ -192,6 +254,13 @@ export const api = {
 
   async deployService(serviceId: string, envId: string): Promise<any> {
     return apiFetch(`/api/v1/admin/services/${serviceId}/deploy`, {
+      method: 'POST',
+      body: JSON.stringify({ env_id: envId }),
+    });
+  },
+
+  async redeployService(serviceId: string, envId: string): Promise<any> {
+    return apiFetch(`/api/v1/admin/services/${serviceId}/redeploy`, {
       method: 'POST',
       body: JSON.stringify({ env_id: envId }),
     });

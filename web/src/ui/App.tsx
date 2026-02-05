@@ -11,6 +11,7 @@ import { AppsPage } from "./pages/AppsPage";
 import { AppDetailPage } from "./pages/AppDetailPage";
 import { ServiceEditPage } from "./pages/ServiceEditPage";
 import { ServiceDetailPage } from "./pages/ServiceDetailPage";
+import { EnvDetailPage } from "./pages/EnvDetailPage";
 import { ReposPage } from "./pages/ReposPage";
 import { TokensPage } from "./pages/TokensPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -163,6 +164,7 @@ function AppRoutes() {
       <Route path="/" element={<Layout><Dashboard /></Layout>} />
       <Route path="/apps" element={<Layout><AppsPage /></Layout>} />
       <Route path="/apps/:appId" element={<Layout><AppDetailPage /></Layout>} />
+      <Route path="/envs/:envId" element={<Layout><EnvDetailPage /></Layout>} />
       <Route path="/services/:serviceId" element={<Layout><ServiceDetailPage /></Layout>} />
       <Route path="/services/:serviceId/edit" element={<Layout><ServiceEditPage /></Layout>} />
       <Route path="/repos" element={<Layout><ReposPage /></Layout>} />

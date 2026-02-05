@@ -81,9 +81,9 @@ export function AppDetailPage() {
         {services.length === 0 ? (
           <div className="empty-state">
             <p>暂无服务配置。</p>
-            <p className="muted">
-              建议先在此处创建服务与槽位，再通过“服务详情页”手动上传制品，测试全流程。
-            </p>
+              <p className="muted">
+              建议先在此处创建服务与槽位，然后进入环境详情页上传制品并部署。
+              </p>
             <button className="btn-primary" onClick={() => setShowCreateService(true)}>
               + 新建服务
             </button>
@@ -137,9 +137,9 @@ export function AppDetailPage() {
                   </div>
 
                   <div className="service-actions">
-                    <Link to={`/services/${service.id}`} className="btn-secondary">
-                      服务详情（槽位/上传）
-                    </Link>
+                      <Link to={`/services/${service.id}`} className="btn-secondary">
+                        槽位配置
+                      </Link>
                     <Link to={`/services/${service.id}/edit`} className="btn-secondary">
                       编辑配置
                     </Link>
@@ -161,11 +161,11 @@ export function AppDetailPage() {
         )}
       </div>
 
-      <div className="section">
-        <div className="section-header">
-          <h2>环境</h2>
-          <p className="section-desc">命名环境（例如 prod/staging）。手动上传制品需要先创建环境。</p>
-        </div>
+        <div className="section">
+          <div className="section-header">
+            <h2>环境</h2>
+            <p className="section-desc">环境是部署/版本/上传的中心入口。建议使用环境详情页完成上传与部署。</p>
+          </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
           <div className="muted">环境数：{envs.length}</div>
@@ -184,8 +184,11 @@ export function AppDetailPage() {
             {envs.map((e) => (
               <div key={e.id} className="repo-card">
                 <div className="repo-header">
-                  <h3>{e.name}</h3>
-                  <span className="badge badge-enabled">{e.kind === "named" ? "命名环境" : e.kind}</span>
+                  <div>
+                    <h3>{e.name}</h3>
+                    <div className="muted">{e.kind === "named" ? "命名环境" : e.kind}</div>
+                  </div>
+                  <Link to={`/envs/${e.id}`} className="btn-secondary">进入环境</Link>
                 </div>
                 <div className="repo-body">
                   <div className="info-item"><strong>ID：</strong> <code>{e.id}</code></div>
@@ -276,7 +279,7 @@ export function AppDetailPage() {
           <ol>
             <li>创建服务与环境</li>
             <li>进入服务详情页创建槽位（挂载路径）</li>
-            <li>在服务详情页手动上传制品（用于测试全流程）</li>
+            <li>进入环境详情页上传制品并部署（推荐）</li>
             <li>（可选）在 <Link to="/tokens">API 令牌</Link> 页面创建令牌，用于 CI 上传</li>
           </ol>
           <p className="muted">

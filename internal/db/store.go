@@ -791,6 +791,53 @@ func (s *Store) CreateNamedEnv(ctx context.Context, appID, name string) (*Env, e
 	return s.GetEnvByID(ctx, id)
 }
 
+func (s *Store) EnsureNamedEnv(ctx context.Context, appID, name string) (*Env, error) {
+	// The schema's UNIQUE constraint includes nullable columns (repo_id/pr_number),
+	// so we must enforce uniqueness at the application layer.
+	if id, err := s.GetEnvIDByName(ctx, appID, name); err == nil {
+		return s.GetEnvByID(ctx, id)
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	return s.CreateNamedEnv(ctx, appID, name)
+}
+
+func (s *Store) FindPreviewPlaceholderEnvID(ctx context.Context, appID string) (string, error) {
+	var id string
+	if err := s.sql.QueryRowContext(ctx, `SELECT id FROM envs
+		WHERE app_id=? AND kind='preview' AND repo_id IS NULL AND pr_number IS NULL AND deleted_at IS NULL
+		ORDER BY created_at ASC LIMIT 1`, appID).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func (s *Store) CreatePreviewPlaceholderEnv(ctx context.Context, appID string) (*Env, error) {
+	id, err := ids.New()
+	if err != nil {
+		return nil, err
+	}
+	// Placeholder "preview" env (without repo/pr). Real preview envs are created
+	// on demand per PR via UpsertPreviewEnv.
+	if _, err := s.sql.ExecContext(ctx, `INSERT INTO envs(id, app_id, kind, name, created_at)
+		VALUES(?,?, 'preview', 'preview', datetime('now'))`, id, appID); err != nil {
+		return nil, err
+	}
+	return s.GetEnvByID(ctx, id)
+}
+
+func (s *Store) EnsurePreviewPlaceholderEnv(ctx context.Context, appID string) (*Env, error) {
+	if id, err := s.FindPreviewPlaceholderEnvID(ctx, appID); err == nil {
+		return s.GetEnvByID(ctx, id)
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	return s.CreatePreviewPlaceholderEnv(ctx, appID)
+}
+
 func (s *Store) UpsertPreviewEnv(ctx context.Context, appID string, repo Repo, prNumber int) (*Env, error) {
 	var id string
 	err := s.sql.QueryRowContext(ctx, `SELECT id FROM envs WHERE app_id=? AND kind='preview' AND repo_id=? AND pr_number=? AND deleted_at IS NULL`,

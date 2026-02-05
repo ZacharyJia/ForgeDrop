@@ -150,6 +150,10 @@ func (s *Server) routes() http.Handler {
 
 	admin.GET("/envs/:envID", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")) })
 	admin.GET("/envs/:envID/snapshots", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/snapshots") })
+	admin.GET("/envs/:envID/services/:serviceID/slot-artifacts", func(c *gin.Context) {
+		s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/services/"+c.Param("serviceID")+"/slot-artifacts")
+	})
+	admin.POST("/envs/:envID/deploy", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/deploy") })
 	admin.POST("/envs/:envID/rollback", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/rollback") })
 
 	// Artifact upload (token)

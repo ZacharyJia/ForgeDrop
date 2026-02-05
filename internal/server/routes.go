@@ -106,6 +106,45 @@ func envJSON(e *db.Env) map[string]any {
 	return out
 }
 
+func snapshotJSON(sn db.Snapshot) map[string]any {
+	out := map[string]any{
+		"id":         sn.ID,
+		"env_id":     sn.EnvID,
+		"created_at": sn.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"note":       sn.Note,
+	}
+	if sn.CreatedByUserID != nil {
+		out["created_by_user_id"] = *sn.CreatedByUserID
+	} else {
+		out["created_by_user_id"] = nil
+	}
+	if sn.CreatedByToken != nil {
+		out["created_by_token_id"] = *sn.CreatedByToken
+	} else {
+		out["created_by_token_id"] = nil
+	}
+	return out
+}
+
+func artifactJSON(a db.Artifact) map[string]any {
+	out := map[string]any{
+		"id":                a.ID,
+		"app_id":            a.AppID,
+		"service_id":        a.ServiceID,
+		"slot_id":           a.SlotID,
+		"repo_id":           a.RepoID,
+		"sha":               a.SHA,
+		"ref":               a.Ref,
+		"pr_number":         a.PRNumber,
+		"original_filename": a.OriginalFilename,
+		"size_bytes":        a.SizeBytes,
+		"sha256_hex":        a.SHA256Hex,
+		"stored_path":       a.StoredPath,
+		"created_at":        a.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+	return out
+}
+
 func repoJSON(r *db.Repo) map[string]any {
 	if r == nil {
 		return nil
@@ -608,6 +647,9 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
 				return
 			}
+			// Make first-run smoother: create default envs.
+			_, _ = s.store.EnsureNamedEnv(r.Context(), app.ID, "prod")
+			_, _ = s.store.EnsurePreviewPlaceholderEnv(r.Context(), app.ID)
 			httpx.WriteJSON(w, http.StatusCreated, appJSON(app))
 			return
 		default:
@@ -995,18 +1037,70 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 		app, _ := s.store.GetAppByID(r.Context(), env.AppID)
 		services, _ := s.store.ListServicesByApp(r.Context(), env.AppID)
 		cur, _ := s.store.GetEnvCurrentSnapshotID(r.Context(), envID)
-		var slotsByService = map[string][]db.Slot{}
+		slotsByService := map[string][]map[string]any{}
+		outSvcs := make([]map[string]any, 0, len(services))
 		for _, svc := range services {
+			svcCopy := svc
+			outSvcs = append(outSvcs, serviceJSON(&svcCopy))
 			ss, _ := s.store.ListSlotsByService(r.Context(), svc.ID)
-			slotsByService[svc.ID] = ss
+			outSlots := make([]map[string]any, 0, len(ss))
+			for _, sl := range ss {
+				outSlots = append(outSlots, slotJSON(sl))
+			}
+			slotsByService[svc.ID] = outSlots
 		}
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{
-			"env":              env,
-			"app":              app,
-			"services":         services,
-			"current_snapshot": cur,
-			"slots_by_service": slotsByService,
+			"env":                 envJSON(env),
+			"app":                 appJSON(app),
+			"services":            outSvcs,
+			"current_snapshot_id": cur,
+			"slots_by_service":    slotsByService,
 		})
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "deploy" && r.Method == "POST" {
+		if err := s.deployer.ApplyEnv(r.Context(), envID); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	if len(parts) >= 4 && parts[1] == "services" && parts[3] == "slot-artifacts" && r.Method == "GET" {
+		serviceID := parts[2]
+		env, err := s.store.GetEnvByID(r.Context(), envID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusNotFound, "unknown env")
+			return
+		}
+		svc, err := s.store.GetServiceByID(r.Context(), serviceID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusNotFound, "unknown service")
+			return
+		}
+		if env.AppID != svc.AppID {
+			httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
+			return
+		}
+		cur, err := s.store.GetEnvCurrentSnapshotID(r.Context(), envID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		if cur == nil {
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"snapshot_id": nil, "artifacts_by_slot_key": map[string]any{}})
+			return
+		}
+		m, err := s.store.GetSnapshotSlotArtifacts(r.Context(), *cur, serviceID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		out := make(map[string]any, len(m))
+		for k, a := range m {
+			out[k] = artifactJSON(a)
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"snapshot_id": *cur, "artifacts_by_slot_key": out})
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "snapshots" && r.Method == "GET" {
@@ -1015,7 +1109,11 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 			httpx.WriteError(w, http.StatusInternalServerError, "db error")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, snaps)
+		out := make([]map[string]any, 0, len(snaps))
+		for _, sn := range snaps {
+			out = append(out, snapshotJSON(sn))
+		}
+		httpx.WriteJSON(w, http.StatusOK, out)
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "rollback" && r.Method == "POST" {

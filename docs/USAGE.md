@@ -100,14 +100,14 @@ curl -X POST \
 用于验证全流程：
 
 1. 进入服务详情页，创建 Slot
-2. 选择命名环境（prod/staging）
-3. 选择要更新的槽位文件
+2. 进入环境详情页（prod/staging）
+3. 展开目标服务，选择要更新的槽位文件
 4. 关闭“上传后自动部署”可进入“待部署”状态
-5. 点击“部署当前版本”触发更新
+5. 点击“部署当前环境”或“部署服务”触发更新
 
 ## 状态与日志
 
-在服务详情页选择环境后可查看：
+在环境详情页可查看：
 
 - 当前快照（desired）
 - `docker compose ps` 输出
@@ -115,7 +115,7 @@ curl -X POST \
 
 ## 常见问题
 
-- 部署失败：优先在服务详情页查看日志与 ps；其次在服务器用 `docker compose -f <composeFile> -p <project> logs`
+- 部署失败：优先在环境详情页查看日志与 ps；其次在服务器用 `docker compose -f <composeFile> -p <project> logs`
 - `compose file not found`：该 env+service 尚未部署（或 runtime 被清理）；点击一次“部署当前版本”即可
 - 访问不到域名：检查 DNS、Traefik network、模板路由 labels
 - `repo not allowed for this slot`：slot 绑定 repo 与 CI 传入 repo 不一致

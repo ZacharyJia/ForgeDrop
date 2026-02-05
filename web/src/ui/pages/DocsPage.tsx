@@ -164,12 +164,11 @@ export function DocsPage() {
             <h2>手动上传 / 手动部署（用于验证全流程）</h2>
             <div className="info-box">
               <ol>
-                <li>进入某个服务详情页</li>
-                <li>先创建 Slot（挂载路径）</li>
-                <li>选择命名环境（prod/staging）</li>
-                <li>选择需要更新的槽位文件</li>
+                <li>进入服务详情页，创建 Slot（挂载路径）</li>
+                <li>进入环境详情页（例如 prod）</li>
+                <li>展开目标服务，选择需要更新的槽位文件</li>
                 <li>按需关闭“上传后自动部署”，即可进入“待部署”状态</li>
-                <li>点击“部署当前版本”触发更新</li>
+                <li>点击“部署当前环境”或“部署服务”触发更新</li>
               </ol>
             </div>
           </section>
@@ -190,7 +189,7 @@ export function DocsPage() {
           <section className="doc-section" id="status">
             <h2>状态与日志</h2>
             <div className="info-box">
-              <p>在服务详情页选择目标环境后，可以看到：</p>
+              <p>在环境详情页可以看到：</p>
               <ul className="doc-list">
                 <li><strong>当前快照（desired）</strong>：Env 的 current_snapshot</li>
                 <li><strong>docker compose ps</strong>：容器运行状态（best-effort）</li>
@@ -247,7 +246,7 @@ export function DocsPage() {
             <h2>常见问题</h2>
             <div className="info-box">
               <ul className="doc-list">
-                <li><strong>部署失败（docker compose up）</strong>：先在服务详情页查看日志与 ps 输出；其次到服务器执行 <code>docker compose -f &lt;composeFile&gt; -p &lt;project&gt; logs</code></li>
+                <li><strong>部署失败（docker compose up）</strong>：先在环境详情页查看日志与 ps 输出；其次到服务器执行 <code>docker compose -f &lt;composeFile&gt; -p &lt;project&gt; logs</code></li>
                 <li><strong>compose file not found</strong>：说明这个 env+service 还没部署过（或者 runtime 被清理）；点击一次“部署当前版本”即可生成</li>
                 <li><strong>访问不到域名</strong>：检查 DNS 是否正确、Traefik 是否同 network、Service 模板里是否配置了路由 label</li>
                 <li><strong>repo not allowed for this slot</strong>：slot 绑定的 repo 与 CI 传入 repo 不一致</li>
