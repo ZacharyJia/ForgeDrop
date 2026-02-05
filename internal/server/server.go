@@ -37,6 +37,12 @@ func New(opts Options) (*Server, error) {
 	if opts.DataDir == "" {
 		opts.DataDir = "./data"
 	}
+	// Use an absolute path so Docker Compose bind-mounts are always valid.
+	// Relative host paths in `services.*.volumes` may be interpreted as named
+	// volumes (and can become invalid due to slashes), depending on syntax.
+	if abs, err := filepath.Abs(opts.DataDir); err == nil {
+		opts.DataDir = abs
+	}
 	if opts.Logger == nil {
 		opts.Logger = log.New(os.Stdout, "forge-drop ", log.LstdFlags|log.LUTC)
 	}
