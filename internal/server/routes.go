@@ -51,15 +51,24 @@ func parseDeployStrategy(v string) string {
 	}
 }
 
+func resolveDeployStrategy(explicit, appDefault string) string {
+	explicit = strings.TrimSpace(explicit)
+	if explicit != "" {
+		return parseDeployStrategy(explicit)
+	}
+	return parseDeployStrategy(appDefault)
+}
+
 func appJSON(a *db.App) map[string]any {
 	if a == nil {
 		return nil
 	}
 	return map[string]any{
-		"id":         a.ID,
-		"app_key":    a.AppKey,
-		"name":       a.Name,
-		"created_at": a.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"id":              a.ID,
+		"app_key":         a.AppKey,
+		"name":            a.Name,
+		"deploy_strategy": parseDeployStrategy(a.DeployStrategy),
+		"created_at":      a.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -722,6 +731,26 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 			}
 			httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 			return
+		case "PUT":
+			var req struct {
+				DeployStrategy string `json:"deploy_strategy"`
+			}
+			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+				return
+			}
+			strategy := parseDeployStrategy(req.DeployStrategy)
+			if err := s.store.UpdateAppDeployStrategy(r.Context(), appID, strategy); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "update failed")
+				return
+			}
+			app, err := s.store.GetAppByID(r.Context(), appID)
+			if err != nil {
+				httpx.WriteError(w, http.StatusNotFound, "not found")
+				return
+			}
+			httpx.WriteJSON(w, http.StatusOK, appJSON(app))
+			return
 		default:
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -1111,7 +1140,7 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "deploy" && r.Method == "POST" {
-		strategy := "recreate"
+		explicit := ""
 		if r.ContentLength > 0 {
 			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 			if err != nil {
@@ -1127,9 +1156,20 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 					httpx.WriteError(w, http.StatusBadRequest, "invalid json")
 					return
 				}
-				strategy = parseDeployStrategy(req.Strategy)
+				explicit = strings.TrimSpace(req.Strategy)
 			}
 		}
+		env, err := s.store.GetEnvByID(r.Context(), envID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusNotFound, "unknown env")
+			return
+		}
+		app, err := s.store.GetAppByID(r.Context(), env.AppID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "app lookup failed")
+			return
+		}
+		strategy := resolveDeployStrategy(explicit, app.DeployStrategy)
 		if err := s.deployer.DeployEnv(r.Context(), envID, strategy); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
 			return
@@ -1204,7 +1244,17 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
 			return
 		}
-		if err := s.deployer.ApplyEnv(r.Context(), envID); err != nil {
+		env, err := s.store.GetEnvByID(r.Context(), envID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusNotFound, "unknown env")
+			return
+		}
+		app, err := s.store.GetAppByID(r.Context(), env.AppID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "app lookup failed")
+			return
+		}
+		if err := s.deployer.DeployEnv(r.Context(), envID, resolveDeployStrategy("", app.DeployStrategy)); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
 			return
 		}
@@ -1221,7 +1271,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
 	autoDeploy := parseAutoDeployFlag(get("deploy"))
-	deployStrategy := parseDeployStrategy(get("deploy_strategy"))
+	deployStrategyRaw := get("deploy_strategy")
 	appKey := get("app")
 	envName := get("env")
 	serviceKey := get("service")
@@ -1265,6 +1315,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "unknown service")
 		return
 	}
+	deployStrategy := resolveDeployStrategy(deployStrategyRaw, app.DeployStrategy)
 	slot, err := s.store.GetSlotByKey(r.Context(), svc.ID, slotKey)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "unknown slot")
@@ -1382,7 +1433,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	}
 	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
 	autoDeploy := parseAutoDeployFlag(get("deploy"))
-	deployStrategy := parseDeployStrategy(get("deploy_strategy"))
+	deployStrategyRaw := get("deploy_strategy")
 
 	appKey := get("app")
 	envName := get("env")
@@ -1426,6 +1477,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 		httpx.WriteError(w, http.StatusBadRequest, "unknown service")
 		return
 	}
+	deployStrategy := resolveDeployStrategy(deployStrategyRaw, app.DeployStrategy)
 
 	// Resolve env id
 	var envID string
@@ -1618,7 +1670,7 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		return
 	}
 	autoDeploy := parseAutoDeployFlag(strings.TrimSpace(r.FormValue("deploy")))
-	deployStrategy := parseDeployStrategy(strings.TrimSpace(r.FormValue("deploy_strategy")))
+	deployStrategyRaw := strings.TrimSpace(r.FormValue("deploy_strategy"))
 	envID := strings.TrimSpace(r.FormValue("env_id"))
 	sha := strings.TrimSpace(r.FormValue("sha"))
 	ref := strings.TrimSpace(r.FormValue("ref"))
@@ -1651,6 +1703,12 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		httpx.WriteError(w, http.StatusBadRequest, "only named env supported for manual upload")
 		return
 	}
+	app, err := s.store.GetAppByID(r.Context(), env.AppID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "app lookup failed")
+		return
+	}
+	deployStrategy := resolveDeployStrategy(deployStrategyRaw, app.DeployStrategy)
 
 	slots, err := s.store.ListSlotsByService(r.Context(), serviceID)
 	if err != nil {
@@ -1822,7 +1880,7 @@ func (s *Server) handleServiceDeploy(w http.ResponseWriter, r *http.Request, ser
 		return
 	}
 	req.EnvID = strings.TrimSpace(req.EnvID)
-	req.Strategy = parseDeployStrategy(req.Strategy)
+	req.Strategy = strings.TrimSpace(req.Strategy)
 	if req.EnvID == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
 		return
@@ -1842,8 +1900,14 @@ func (s *Server) handleServiceDeploy(w http.ResponseWriter, r *http.Request, ser
 		httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
 		return
 	}
+	app, err := s.store.GetAppByID(r.Context(), svc.AppID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "app lookup failed")
+		return
+	}
+	strategy := resolveDeployStrategy(req.Strategy, app.DeployStrategy)
 
-	if err := s.deployer.DeployService(r.Context(), req.EnvID, serviceID, req.Strategy); err != nil {
+	if err := s.deployer.DeployService(r.Context(), req.EnvID, serviceID, strategy); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
 		return
 	}

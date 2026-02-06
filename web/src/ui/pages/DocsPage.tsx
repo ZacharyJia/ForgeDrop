@@ -76,6 +76,9 @@ export function DocsPage() {
                   <strong>应用</strong>：进入 <Link to="/apps">应用</Link> 创建 App
                 </li>
                 <li>
+                  <strong>默认部署策略</strong>：在 App 详情页设置默认策略（重建部署/快速重启）
+                </li>
+                <li>
                   <strong>服务</strong>：在 App 详情里创建 Service，然后进入“编辑配置”配置 Compose 模板
                 </li>
                 <li>

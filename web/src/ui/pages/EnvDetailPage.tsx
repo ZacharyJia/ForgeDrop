@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Artifact, type EnvDetail, type Service, type Slot } from "../../api";
@@ -31,10 +31,11 @@ function ArtifactRow({ a }: { a: Artifact }) {
 function ServicePanel(props: {
   envId: string;
   envKind: string;
+  defaultDeployStrategy: 'recreate' | 'restart';
   service: Service;
   slots: Slot[];
 }) {
-  const { envId, service, slots } = props;
+  const { envId, service, slots, defaultDeployStrategy } = props;
   const toast = useToast();
   const queryClient = useQueryClient();
 
@@ -53,7 +54,10 @@ function ServicePanel(props: {
   });
 
   const [autoDeploy, setAutoDeploy] = useState(true);
-  const [deployStrategy, setDeployStrategy] = useState<'recreate' | 'restart'>('recreate');
+  const [deployStrategy, setDeployStrategy] = useState<'recreate' | 'restart'>(defaultDeployStrategy);
+  useEffect(() => {
+    setDeployStrategy(defaultDeployStrategy);
+  }, [defaultDeployStrategy]);
   const [sha, setSha] = useState("");
   const [ref, setRef] = useState("");
   const [filesBySlotID, setFilesBySlotID] = useState<Record<string, File | null>>({});
@@ -318,6 +322,7 @@ export function EnvDetailPage() {
   const data = envQuery.data;
   const services = data?.services ?? [];
   const slotsByService = data?.slots_by_service ?? {};
+  const appDefaultStrategy: 'recreate' | 'restart' = data?.app?.deploy_strategy === 'restart' ? 'restart' : 'recreate';
 
   const namedEnvInfo = useMemo(() => {
     if (!data?.env) return null;
@@ -462,6 +467,7 @@ export function EnvDetailPage() {
                 key={svc.id}
                 envId={data.env.id}
                 envKind={data.env.kind}
+                defaultDeployStrategy={appDefaultStrategy}
                 service={svc}
                 slots={slotsByService[svc.id] || []}
               />

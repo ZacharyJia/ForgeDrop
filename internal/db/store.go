@@ -123,10 +123,11 @@ type Repo struct {
 }
 
 type App struct {
-	ID        string
-	AppKey    string
-	Name      string
-	CreatedAt time.Time
+	ID             string
+	AppKey         string
+	Name           string
+	DeployStrategy string
+	CreatedAt      time.Time
 }
 
 type Service struct {
@@ -572,14 +573,14 @@ func (s *Store) CreateApp(ctx context.Context, appKey, name string) (*App, error
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.sql.ExecContext(ctx, `INSERT INTO apps(id, app_key, name, created_at) VALUES(?,?,?, datetime('now'))`, id, appKey, name); err != nil {
+	if _, err := s.sql.ExecContext(ctx, `INSERT INTO apps(id, app_key, name, deploy_strategy, created_at) VALUES(?,?,?, 'recreate', datetime('now'))`, id, appKey, name); err != nil {
 		return nil, err
 	}
 	return s.GetAppByID(ctx, id)
 }
 
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT id, app_key, name, created_at FROM apps ORDER BY app_key ASC`)
+	rows, err := s.sql.QueryContext(ctx, `SELECT id, app_key, name, deploy_strategy, created_at FROM apps ORDER BY app_key ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -588,10 +589,13 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 	for rows.Next() {
 		var a App
 		var createdAt string
-		if err := rows.Scan(&a.ID, &a.AppKey, &a.Name, &createdAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.AppKey, &a.Name, &a.DeployStrategy, &createdAt); err != nil {
 			return nil, err
 		}
 		ct, _ := parseSQLiteTime(createdAt)
+		if strings.TrimSpace(a.DeployStrategy) == "" {
+			a.DeployStrategy = "recreate"
+		}
 		a.CreatedAt = ct
 		out = append(out, a)
 	}
@@ -601,14 +605,17 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 func (s *Store) GetAppByID(ctx context.Context, id string) (*App, error) {
 	var a App
 	var createdAt string
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_key, name, created_at FROM apps WHERE id=?`, id).
-		Scan(&a.ID, &a.AppKey, &a.Name, &createdAt); err != nil {
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_key, name, deploy_strategy, created_at FROM apps WHERE id=?`, id).
+		Scan(&a.ID, &a.AppKey, &a.Name, &a.DeployStrategy, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	ct, _ := parseSQLiteTime(createdAt)
+	if strings.TrimSpace(a.DeployStrategy) == "" {
+		a.DeployStrategy = "recreate"
+	}
 	a.CreatedAt = ct
 	return &a, nil
 }
@@ -616,16 +623,28 @@ func (s *Store) GetAppByID(ctx context.Context, id string) (*App, error) {
 func (s *Store) GetAppByKey(ctx context.Context, appKey string) (*App, error) {
 	var a App
 	var createdAt string
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_key, name, created_at FROM apps WHERE app_key=?`, appKey).
-		Scan(&a.ID, &a.AppKey, &a.Name, &createdAt); err != nil {
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_key, name, deploy_strategy, created_at FROM apps WHERE app_key=?`, appKey).
+		Scan(&a.ID, &a.AppKey, &a.Name, &a.DeployStrategy, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	ct, _ := parseSQLiteTime(createdAt)
+	if strings.TrimSpace(a.DeployStrategy) == "" {
+		a.DeployStrategy = "recreate"
+	}
 	a.CreatedAt = ct
 	return &a, nil
+}
+
+func (s *Store) UpdateAppDeployStrategy(ctx context.Context, id, strategy string) error {
+	strategy = strings.TrimSpace(strings.ToLower(strategy))
+	if strategy != "restart" {
+		strategy = "recreate"
+	}
+	_, err := s.sql.ExecContext(ctx, `UPDATE apps SET deploy_strategy=? WHERE id=?`, strategy, id)
+	return err
 }
 
 func (s *Store) DeleteApp(ctx context.Context, id string) error {

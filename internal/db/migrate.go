@@ -31,7 +31,7 @@ func Migrate(ctx context.Context, sqlDB *sql.DB) error {
 	return nil
 }
 
-const latestSchemaVersion = 2
+const latestSchemaVersion = 3
 
 func applyMigration(ctx context.Context, sqlDB *sql.DB, version int) error {
 	tx, err := sqlDB.BeginTx(ctx, nil)
@@ -47,6 +47,10 @@ func applyMigration(ctx context.Context, sqlDB *sql.DB, version int) error {
 		}
 	case 2:
 		if err := migrationV2(ctx, tx); err != nil {
+			return err
+		}
+	case 3:
+		if err := migrationV3(ctx, tx); err != nil {
 			return err
 		}
 	default:
@@ -184,6 +188,18 @@ func migrationV2(ctx context.Context, tx *sql.Tx) error {
 	stmts := []string{
 		`ALTER TABLE services ADD COLUMN compose_template TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE services ADD COLUMN use_compose INTEGER NOT NULL DEFAULT 0`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.ExecContext(ctx, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrationV3(ctx context.Context, tx *sql.Tx) error {
+	stmts := []string{
+		`ALTER TABLE apps ADD COLUMN deploy_strategy TEXT NOT NULL DEFAULT 'recreate'`,
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s); err != nil {

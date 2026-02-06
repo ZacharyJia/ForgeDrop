@@ -9,6 +9,7 @@ export interface App {
   id: string;
   app_key: string;
   name: string;
+  deploy_strategy?: 'recreate' | 'restart';
   created_at: string;
 }
 
@@ -170,10 +171,11 @@ export const api = {
     return apiFetch(`/api/v1/admin/envs/${envId}`);
   },
 
-  async deployEnv(envId: string, strategy: 'recreate' | 'restart' = 'recreate'): Promise<{ ok: boolean }> {
+  async deployEnv(envId: string, strategy?: 'recreate' | 'restart'): Promise<{ ok: boolean }> {
+    const body = strategy ? { strategy } : {};
     return apiFetch(`/api/v1/admin/envs/${envId}/deploy`, {
       method: 'POST',
-      body: JSON.stringify({ strategy }),
+      body: JSON.stringify(body),
     });
   },
 
@@ -274,6 +276,13 @@ export const api = {
     });
   },
 
+  async updateAppDeployStrategy(appId: string, deployStrategy: 'recreate' | 'restart'): Promise<App> {
+    return apiFetch(`/api/v1/admin/apps/${appId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ deploy_strategy: deployStrategy }),
+    });
+  },
+
   async getApp(appId: string): Promise<{ app: App; services: Service[]; envs: Env[] }> {
     return apiFetch(`/api/v1/admin/apps/${appId}`);
   },
@@ -320,10 +329,12 @@ export const api = {
     return apiFetch(`/api/v1/admin/services/${serviceId}/logs?${q.toString()}`);
   },
 
-  async deployService(serviceId: string, envId: string, strategy: 'recreate' | 'restart' = 'recreate'): Promise<any> {
+  async deployService(serviceId: string, envId: string, strategy?: 'recreate' | 'restart'): Promise<any> {
+    const body: any = { env_id: envId };
+    if (strategy) body.strategy = strategy;
     return apiFetch(`/api/v1/admin/services/${serviceId}/deploy`, {
       method: 'POST',
-      body: JSON.stringify({ env_id: envId, strategy }),
+      body: JSON.stringify(body),
     });
   },
 
