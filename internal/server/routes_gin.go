@@ -69,7 +69,6 @@ func (s *Server) routes() http.Handler {
 	admin.GET("/apps", func(c *gin.Context) { s.handleAdminApps(c.Writer, c.Request, "") })
 	admin.POST("/apps", func(c *gin.Context) { s.handleAdminApps(c.Writer, c.Request, "") })
 	admin.GET("/apps/:appID", func(c *gin.Context) { s.handleAdminApps(c.Writer, c.Request, "/"+c.Param("appID")) })
-	admin.PUT("/apps/:appID", func(c *gin.Context) { s.handleAdminApps(c.Writer, c.Request, "/"+c.Param("appID")) })
 	admin.DELETE("/apps/:appID", func(c *gin.Context) { s.handleAdminApps(c.Writer, c.Request, "/"+c.Param("appID")) })
 
 	admin.GET("/apps/:appID/services", func(c *gin.Context) { s.handleAdminApps(c.Writer, c.Request, "/"+c.Param("appID")+"/services") })

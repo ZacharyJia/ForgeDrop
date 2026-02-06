@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../../api";
@@ -62,21 +62,6 @@ export function AppDetailPage() {
   const namedTpl = settingsQuery.data?.named_host_template || "";
   const previewTpl = settingsQuery.data?.preview_host_template || "";
 
-  const [appDeployStrategy, setAppDeployStrategy] = useState<'recreate' | 'restart'>('recreate');
-  useEffect(() => {
-    if (app?.deploy_strategy === 'restart') {
-      setAppDeployStrategy('restart');
-    } else {
-      setAppDeployStrategy('recreate');
-    }
-  }, [app?.deploy_strategy]);
-
-  const updateAppStrategyMutation = useMutation({
-    mutationFn: () => api.updateAppDeployStrategy(appId!, appDeployStrategy),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["app", appId] });
-    },
-  });
 
   const envUrls = useMemo(() => {
     const renderPreviewHost = (tpl: string, appKey2: string, repoSlug: string, pr: number, serviceKey: string, baseDomain2: string) => {
@@ -156,26 +141,6 @@ export function AppDetailPage() {
         <Link to="/apps" className="btn-secondary">
           ← 返回应用列表
         </Link>
-      </div>
-
-      <div className="section">
-        <div className="section-header">
-          <h2>应用部署策略</h2>
-          <p className="section-desc">作为该 App 的默认部署方式；上传自动部署与未显式传 strategy 的 API 都会使用这里。</p>
-        </div>
-        <div className="info-box">
-          <div className="form-group">
-            <label>默认策略</label>
-            <select value={appDeployStrategy} onChange={(e) => setAppDeployStrategy(e.target.value as any)}>
-              <option value="recreate">重建部署（down + up，默认）</option>
-              <option value="restart">快速重启（restart，更快）</option>
-            </select>
-          </div>
-          <button className="btn-secondary" onClick={() => updateAppStrategyMutation.mutate()} disabled={updateAppStrategyMutation.isPending}>
-            {updateAppStrategyMutation.isPending ? "保存中..." : "保存默认策略"}
-          </button>
-          {updateAppStrategyMutation.error && <div className="error" style={{ marginTop: "0.5rem" }}>{String(updateAppStrategyMutation.error)}</div>}
-        </div>
       </div>
 
       <div className="section">

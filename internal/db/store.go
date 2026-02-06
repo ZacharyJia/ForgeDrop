@@ -123,11 +123,10 @@ type Repo struct {
 }
 
 type App struct {
-	ID             string
-	AppKey         string
-	Name           string
-	DeployStrategy string
-	CreatedAt      time.Time
+	ID        string
+	AppKey    string
+	Name      string
+	CreatedAt time.Time
 }
 
 type Service struct {
@@ -143,6 +142,7 @@ type Service struct {
 	ProdHost         string
 	TraefikEntrypnts string
 	ComposeTemplate  string // Docker Compose YAML template
+	DeployStrategy   string // recreate|restart (default recreate)
 	UseCompose       bool   // If true, use compose_template instead of manual Docker API
 	Revision         int
 	Enabled          bool
@@ -573,14 +573,14 @@ func (s *Store) CreateApp(ctx context.Context, appKey, name string) (*App, error
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.sql.ExecContext(ctx, `INSERT INTO apps(id, app_key, name, deploy_strategy, created_at) VALUES(?,?,?, 'recreate', datetime('now'))`, id, appKey, name); err != nil {
+	if _, err := s.sql.ExecContext(ctx, `INSERT INTO apps(id, app_key, name, created_at) VALUES(?,?,?, datetime('now'))`, id, appKey, name); err != nil {
 		return nil, err
 	}
 	return s.GetAppByID(ctx, id)
 }
 
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT id, app_key, name, deploy_strategy, created_at FROM apps ORDER BY app_key ASC`)
+	rows, err := s.sql.QueryContext(ctx, `SELECT id, app_key, name, created_at FROM apps ORDER BY app_key ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -589,13 +589,10 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 	for rows.Next() {
 		var a App
 		var createdAt string
-		if err := rows.Scan(&a.ID, &a.AppKey, &a.Name, &a.DeployStrategy, &createdAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.AppKey, &a.Name, &createdAt); err != nil {
 			return nil, err
 		}
 		ct, _ := parseSQLiteTime(createdAt)
-		if strings.TrimSpace(a.DeployStrategy) == "" {
-			a.DeployStrategy = "recreate"
-		}
 		a.CreatedAt = ct
 		out = append(out, a)
 	}
@@ -605,17 +602,14 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 func (s *Store) GetAppByID(ctx context.Context, id string) (*App, error) {
 	var a App
 	var createdAt string
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_key, name, deploy_strategy, created_at FROM apps WHERE id=?`, id).
-		Scan(&a.ID, &a.AppKey, &a.Name, &a.DeployStrategy, &createdAt); err != nil {
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_key, name, created_at FROM apps WHERE id=?`, id).
+		Scan(&a.ID, &a.AppKey, &a.Name, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	ct, _ := parseSQLiteTime(createdAt)
-	if strings.TrimSpace(a.DeployStrategy) == "" {
-		a.DeployStrategy = "recreate"
-	}
 	a.CreatedAt = ct
 	return &a, nil
 }
@@ -623,28 +617,16 @@ func (s *Store) GetAppByID(ctx context.Context, id string) (*App, error) {
 func (s *Store) GetAppByKey(ctx context.Context, appKey string) (*App, error) {
 	var a App
 	var createdAt string
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_key, name, deploy_strategy, created_at FROM apps WHERE app_key=?`, appKey).
-		Scan(&a.ID, &a.AppKey, &a.Name, &a.DeployStrategy, &createdAt); err != nil {
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_key, name, created_at FROM apps WHERE app_key=?`, appKey).
+		Scan(&a.ID, &a.AppKey, &a.Name, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	ct, _ := parseSQLiteTime(createdAt)
-	if strings.TrimSpace(a.DeployStrategy) == "" {
-		a.DeployStrategy = "recreate"
-	}
 	a.CreatedAt = ct
 	return &a, nil
-}
-
-func (s *Store) UpdateAppDeployStrategy(ctx context.Context, id, strategy string) error {
-	strategy = strings.TrimSpace(strings.ToLower(strategy))
-	if strategy != "restart" {
-		strategy = "recreate"
-	}
-	_, err := s.sql.ExecContext(ctx, `UPDATE apps SET deploy_strategy=? WHERE id=?`, strategy, id)
-	return err
 }
 
 func (s *Store) DeleteApp(ctx context.Context, id string) error {
@@ -698,9 +680,9 @@ networks:
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := s.sql.ExecContext(ctx, `INSERT INTO services(
-		id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, use_compose, enabled, created_at, updated_at
-	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, appID, serviceKey, name, image, command, containerPort, runUser, string(envJSON), prodHost, entrypoints, composeTemplate, 1, 1, now, now); err != nil {
+		id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, deploy_strategy, use_compose, enabled, created_at, updated_at
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, appID, serviceKey, name, image, command, containerPort, runUser, string(envJSON), prodHost, entrypoints, composeTemplate, "recreate", 1, 1, now, now); err != nil {
 		return nil, err
 	}
 	return s.GetServiceByID(ctx, id)
@@ -713,9 +695,9 @@ func (s *Store) UpdateService(ctx context.Context, serviceID string, patch Servi
 	}
 	// Compose-only: keep use_compose always true.
 	res, err := s.sql.ExecContext(ctx, `UPDATE services
-		SET name=?, image=?, command=?, container_port=?, run_user=?, env_json=?, prod_host=?, traefik_entrypoints=?, compose_template=?, use_compose=1, enabled=?, revision=revision+1, updated_at=datetime('now')
+		SET name=?, image=?, command=?, container_port=?, run_user=?, env_json=?, prod_host=?, traefik_entrypoints=?, compose_template=?, deploy_strategy=?, use_compose=1, enabled=?, revision=revision+1, updated_at=datetime('now')
 		WHERE id=?`,
-		patch.Name, patch.Image, patch.Command, patch.ContainerPort, patch.RunUser, string(envJSON), patch.ProdHost, patch.TraefikEntrypnts, patch.ComposeTemplate, boolToInt(patch.Enabled), serviceID)
+		patch.Name, patch.Image, patch.Command, patch.ContainerPort, patch.RunUser, string(envJSON), patch.ProdHost, patch.TraefikEntrypnts, patch.ComposeTemplate, normalizeDeployStrategy(patch.DeployStrategy), boolToInt(patch.Enabled), serviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -731,15 +713,16 @@ func (s *Store) GetServiceByID(ctx context.Context, id string) (*Service, error)
 	var envJSON string
 	var createdAt, updatedAt string
 	var enabled, useCompose int
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, use_compose, revision, enabled, created_at, updated_at
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, deploy_strategy, use_compose, revision, enabled, created_at, updated_at
 		FROM services WHERE id=?`, id).
-		Scan(&svc.ID, &svc.AppID, &svc.ServiceKey, &svc.Name, &svc.Image, &svc.Command, &svc.ContainerPort, &svc.RunUser, &envJSON, &svc.ProdHost, &svc.TraefikEntrypnts, &svc.ComposeTemplate, &useCompose, &svc.Revision, &enabled, &createdAt, &updatedAt); err != nil {
+		Scan(&svc.ID, &svc.AppID, &svc.ServiceKey, &svc.Name, &svc.Image, &svc.Command, &svc.ContainerPort, &svc.RunUser, &envJSON, &svc.ProdHost, &svc.TraefikEntrypnts, &svc.ComposeTemplate, &svc.DeployStrategy, &useCompose, &svc.Revision, &enabled, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(envJSON), &svc.Env)
+	svc.DeployStrategy = normalizeDeployStrategy(svc.DeployStrategy)
 	svc.Enabled = enabled != 0
 	svc.UseCompose = useCompose != 0
 	svc.CreatedAt, _ = parseSQLiteTime(createdAt)
@@ -759,7 +742,7 @@ func (s *Store) GetServiceByKey(ctx context.Context, appID, serviceKey string) (
 }
 
 func (s *Store) ListServicesByApp(ctx context.Context, appID string) ([]Service, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, use_compose, revision, enabled, created_at, updated_at
+	rows, err := s.sql.QueryContext(ctx, `SELECT id, app_id, service_key, name, image, command, container_port, run_user, env_json, prod_host, traefik_entrypoints, compose_template, deploy_strategy, use_compose, revision, enabled, created_at, updated_at
 		FROM services WHERE app_id=? ORDER BY service_key ASC`, appID)
 	if err != nil {
 		return nil, err
@@ -772,10 +755,11 @@ func (s *Store) ListServicesByApp(ctx context.Context, appID string) ([]Service,
 		var createdAt, updatedAt string
 		var enabled, useCompose int
 		if err := rows.Scan(&svc.ID, &svc.AppID, &svc.ServiceKey, &svc.Name, &svc.Image, &svc.Command, &svc.ContainerPort, &svc.RunUser,
-			&envJSON, &svc.ProdHost, &svc.TraefikEntrypnts, &svc.ComposeTemplate, &useCompose, &svc.Revision, &enabled, &createdAt, &updatedAt); err != nil {
+			&envJSON, &svc.ProdHost, &svc.TraefikEntrypnts, &svc.ComposeTemplate, &svc.DeployStrategy, &useCompose, &svc.Revision, &enabled, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(envJSON), &svc.Env)
+		svc.DeployStrategy = normalizeDeployStrategy(svc.DeployStrategy)
 		svc.Enabled = enabled != 0
 		svc.UseCompose = useCompose != 0
 		svc.CreatedAt, _ = parseSQLiteTime(createdAt)
@@ -1456,6 +1440,14 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func normalizeDeployStrategy(v string) string {
+	v = strings.TrimSpace(strings.ToLower(v))
+	if v == "restart" {
+		return "restart"
+	}
+	return "recreate"
 }
 
 func nullableInt(p *int) any {

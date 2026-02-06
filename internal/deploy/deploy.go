@@ -40,11 +40,11 @@ func (d *Deployer) Close() error {
 }
 
 func (d *Deployer) ApplyEnv(ctx context.Context, envID string) error {
-	return d.DeployEnv(ctx, envID, "recreate")
+	return d.DeployEnv(ctx, envID, "")
 }
 
 func (d *Deployer) ApplyService(ctx context.Context, envID, serviceID string) error {
-	return d.DeployService(ctx, envID, serviceID, "recreate")
+	return d.DeployService(ctx, envID, serviceID, "")
 }
 
 func (d *Deployer) DeployService(ctx context.Context, envID, serviceID, strategy string) error {
@@ -105,7 +105,7 @@ func (d *Deployer) DeployService(ctx context.Context, envID, serviceID, strategy
 	}
 	strategy = strings.TrimSpace(strings.ToLower(strategy))
 	if strategy == "" {
-		strategy = "recreate"
+		strategy = strings.TrimSpace(strings.ToLower(svc.DeployStrategy))
 	}
 	if strategy != "recreate" && strategy != "restart" {
 		strategy = "recreate"

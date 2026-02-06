@@ -36,11 +36,10 @@
 1. Settings：配置 `base_domain`、`preview_host_template`、`docker_network`
 2. Repos：添加 `owner/repo` 并设置 webhook secret
 3. Apps：创建 App
-4. 在 App 详情页配置“默认部署策略”（建议默认 `recreate`）
-5. Services：为 App 创建 Service，并配置 Docker Compose 模板
-6. Slots：为 Service 创建 Slot（repo + container path）
-7. Envs：创建命名环境（至少创建 `prod`）
-8. Tokens：创建 API Token 供 CI 上传制品
+4. Services：为 App 创建 Service，并在服务编辑页配置 Docker Compose 模板 + 默认部署策略
+5. Slots：为 Service 创建 Slot（repo + container path）
+6. Envs：创建命名环境（至少创建 `prod`）
+7. Tokens：创建 API Token 供 CI 上传制品
 
 ## Compose 模板
 

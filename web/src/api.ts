@@ -9,7 +9,6 @@ export interface App {
   id: string;
   app_key: string;
   name: string;
-  deploy_strategy?: 'recreate' | 'restart';
   created_at: string;
 }
 
@@ -26,6 +25,7 @@ export interface Service {
   prod_host: string;
   traefik_entrypoints: string;
   compose_template: string;
+  deploy_strategy?: 'recreate' | 'restart';
   use_compose: boolean;
   revision: number;
   enabled: boolean;
@@ -273,13 +273,6 @@ export const api = {
     return apiFetch('/api/v1/admin/apps', {
       method: 'POST',
       body: JSON.stringify({ app_key: appKey, name }),
-    });
-  },
-
-  async updateAppDeployStrategy(appId: string, deployStrategy: 'recreate' | 'restart'): Promise<App> {
-    return apiFetch(`/api/v1/admin/apps/${appId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ deploy_strategy: deployStrategy }),
     });
   },
 

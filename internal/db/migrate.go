@@ -31,7 +31,7 @@ func Migrate(ctx context.Context, sqlDB *sql.DB) error {
 	return nil
 }
 
-const latestSchemaVersion = 3
+const latestSchemaVersion = 4
 
 func applyMigration(ctx context.Context, sqlDB *sql.DB, version int) error {
 	tx, err := sqlDB.BeginTx(ctx, nil)
@@ -51,6 +51,10 @@ func applyMigration(ctx context.Context, sqlDB *sql.DB, version int) error {
 		}
 	case 3:
 		if err := migrationV3(ctx, tx); err != nil {
+			return err
+		}
+	case 4:
+		if err := migrationV4(ctx, tx); err != nil {
 			return err
 		}
 	default:
@@ -199,7 +203,20 @@ func migrationV2(ctx context.Context, tx *sql.Tx) error {
 
 func migrationV3(ctx context.Context, tx *sql.Tx) error {
 	stmts := []string{
+		// Historical: this column may exist in some environments.
 		`ALTER TABLE apps ADD COLUMN deploy_strategy TEXT NOT NULL DEFAULT 'recreate'`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.ExecContext(ctx, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrationV4(ctx context.Context, tx *sql.Tx) error {
+	stmts := []string{
+		`ALTER TABLE services ADD COLUMN deploy_strategy TEXT NOT NULL DEFAULT 'recreate'`,
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s); err != nil {

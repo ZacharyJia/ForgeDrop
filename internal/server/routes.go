@@ -64,11 +64,10 @@ func appJSON(a *db.App) map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"id":              a.ID,
-		"app_key":         a.AppKey,
-		"name":            a.Name,
-		"deploy_strategy": parseDeployStrategy(a.DeployStrategy),
-		"created_at":      a.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"id":         a.ID,
+		"app_key":    a.AppKey,
+		"name":       a.Name,
+		"created_at": a.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -89,6 +88,7 @@ func serviceJSON(svc *db.Service) map[string]any {
 		"prod_host":           svc.ProdHost,
 		"traefik_entrypoints": svc.TraefikEntrypnts,
 		"compose_template":    svc.ComposeTemplate,
+		"deploy_strategy":     parseDeployStrategy(svc.DeployStrategy),
 		"use_compose":         svc.UseCompose,
 		"revision":            svc.Revision,
 		"enabled":             svc.Enabled,
@@ -731,26 +731,6 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 			}
 			httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 			return
-		case "PUT":
-			var req struct {
-				DeployStrategy string `json:"deploy_strategy"`
-			}
-			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
-				return
-			}
-			strategy := parseDeployStrategy(req.DeployStrategy)
-			if err := s.store.UpdateAppDeployStrategy(r.Context(), appID, strategy); err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "update failed")
-				return
-			}
-			app, err := s.store.GetAppByID(r.Context(), appID)
-			if err != nil {
-				httpx.WriteError(w, http.StatusNotFound, "not found")
-				return
-			}
-			httpx.WriteJSON(w, http.StatusOK, appJSON(app))
-			return
 		default:
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -893,6 +873,7 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 				ProdHost         string            `json:"prod_host"`
 				TraefikEntrypnts string            `json:"traefik_entrypoints"`
 				ComposeTemplate  string            `json:"compose_template"`
+				DeployStrategy   string            `json:"deploy_strategy"`
 				Enabled          bool              `json:"enabled"`
 			}
 			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
@@ -919,6 +900,9 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 				patch.TraefikEntrypnts = req.TraefikEntrypnts
 			}
 			patch.ComposeTemplate = req.ComposeTemplate
+			if strings.TrimSpace(req.DeployStrategy) != "" {
+				patch.DeployStrategy = parseDeployStrategy(req.DeployStrategy)
+			}
 			patch.UseCompose = true
 			patch.Enabled = req.Enabled
 			updated, err := s.store.UpdateService(r.Context(), serviceID, patch)
@@ -1159,17 +1143,10 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 				explicit = strings.TrimSpace(req.Strategy)
 			}
 		}
-		env, err := s.store.GetEnvByID(r.Context(), envID)
-		if err != nil {
-			httpx.WriteError(w, http.StatusNotFound, "unknown env")
-			return
+		strategy := strings.TrimSpace(explicit)
+		if strategy != "" {
+			strategy = parseDeployStrategy(strategy)
 		}
-		app, err := s.store.GetAppByID(r.Context(), env.AppID)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "app lookup failed")
-			return
-		}
-		strategy := resolveDeployStrategy(explicit, app.DeployStrategy)
 		if err := s.deployer.DeployEnv(r.Context(), envID, strategy); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
 			return
@@ -1244,17 +1221,7 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
 			return
 		}
-		env, err := s.store.GetEnvByID(r.Context(), envID)
-		if err != nil {
-			httpx.WriteError(w, http.StatusNotFound, "unknown env")
-			return
-		}
-		app, err := s.store.GetAppByID(r.Context(), env.AppID)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "app lookup failed")
-			return
-		}
-		if err := s.deployer.DeployEnv(r.Context(), envID, resolveDeployStrategy("", app.DeployStrategy)); err != nil {
+		if err := s.deployer.DeployEnv(r.Context(), envID, ""); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
 			return
 		}
@@ -1315,7 +1282,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "unknown service")
 		return
 	}
-	deployStrategy := resolveDeployStrategy(deployStrategyRaw, app.DeployStrategy)
+	deployStrategy := resolveDeployStrategy(deployStrategyRaw, svc.DeployStrategy)
 	slot, err := s.store.GetSlotByKey(r.Context(), svc.ID, slotKey)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "unknown slot")
@@ -1477,7 +1444,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 		httpx.WriteError(w, http.StatusBadRequest, "unknown service")
 		return
 	}
-	deployStrategy := resolveDeployStrategy(deployStrategyRaw, app.DeployStrategy)
+	deployStrategy := resolveDeployStrategy(deployStrategyRaw, svc.DeployStrategy)
 
 	// Resolve env id
 	var envID string
@@ -1703,12 +1670,7 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		httpx.WriteError(w, http.StatusBadRequest, "only named env supported for manual upload")
 		return
 	}
-	app, err := s.store.GetAppByID(r.Context(), env.AppID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "app lookup failed")
-		return
-	}
-	deployStrategy := resolveDeployStrategy(deployStrategyRaw, app.DeployStrategy)
+	deployStrategy := resolveDeployStrategy(deployStrategyRaw, svc.DeployStrategy)
 
 	slots, err := s.store.ListSlotsByService(r.Context(), serviceID)
 	if err != nil {
@@ -1900,12 +1862,7 @@ func (s *Server) handleServiceDeploy(w http.ResponseWriter, r *http.Request, ser
 		httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
 		return
 	}
-	app, err := s.store.GetAppByID(r.Context(), svc.AppID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "app lookup failed")
-		return
-	}
-	strategy := resolveDeployStrategy(req.Strategy, app.DeployStrategy)
+	strategy := resolveDeployStrategy(req.Strategy, svc.DeployStrategy)
 
 	if err := s.deployer.DeployService(r.Context(), req.EnvID, serviceID, strategy); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())

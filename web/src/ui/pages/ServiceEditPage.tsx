@@ -40,6 +40,7 @@ export function ServiceEditPage() {
         name: formData.name,
         enabled: formData.enabled,
         compose_template: formData.compose_template,
+        deploy_strategy: formData.deploy_strategy,
         prod_host: formData.prod_host,
         traefik_entrypoints: formData.traefik_entrypoints,
         container_port: formData.container_port,
@@ -149,6 +150,18 @@ export function ServiceEditPage() {
 
         <div className="form-section">
           <h2>路由配置</h2>
+
+		  <div className="form-group">
+			<label>默认部署策略</label>
+			<select
+			  value={formData.deploy_strategy || "recreate"}
+			  onChange={(e) => setFormData({ ...formData, deploy_strategy: e.target.value as any })}
+			>
+			  <option value="recreate">重建部署（down + up，默认）</option>
+			  <option value="restart">快速重启（restart，更快）</option>
+			</select>
+			<p className="help-text">用于该服务在自动部署与未显式传 strategy 时的默认行为。</p>
+		  </div>
 
           <div className="form-group">
             <label>服务端口（供模板变量 .Port 使用）</label>
