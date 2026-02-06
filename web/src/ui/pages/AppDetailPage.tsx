@@ -163,8 +163,8 @@ export function AppDetailPage() {
           </div>
         ) : (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <div className="muted">服务数：{services.length}</div>
+            <div className="section-toolbar">
+              <div className="section-toolbar-note">服务数：{services.length}</div>
               <button className="btn-primary" onClick={() => setShowCreateService(true)}>
                 + 新建服务
               </button>
@@ -240,8 +240,8 @@ export function AppDetailPage() {
             <p className="section-desc">环境是部署/版本/上传的中心入口。建议使用环境详情页完成上传与部署。</p>
           </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <div className="muted">环境数：{envs.length}</div>
+        <div className="section-toolbar">
+          <div className="section-toolbar-note">环境数：{envs.length}</div>
           <button className="btn-primary" onClick={() => setShowCreateEnv(true)}>
             + 新建环境
           </button>
@@ -269,20 +269,20 @@ export function AppDetailPage() {
                   <Link to={`/envs/${e.id}`} className="btn-secondary">进入环境</Link>
                 </div>
                 <div className="repo-body">
-                  {envUrls[e.id] && envUrls[e.id].length > 0 ? (
-                    <>
-                      <div className="muted" style={{ marginBottom: "0.25rem" }}>入口 URL</div>
-                      <div className="url-chips">
-                        {envUrls[e.id].slice(0, 6).map((x) => (
-                          <a key={x.label + x.url} className="url-chip" href={x.url} target="_blank" rel="noreferrer">
+                    {envUrls[e.id] && envUrls[e.id].length > 0 ? (
+                      <>
+                        <div className="url-list-label">入口 URL</div>
+                        <div className="url-chips">
+                          {envUrls[e.id].slice(0, 6).map((x) => (
+                            <a key={x.label + x.url} className="url-chip" href={x.url} target="_blank" rel="noreferrer">
                             <span className="muted">{x.label}</span>
                             <code>{x.url}</code>
                           </a>
-                        ))}
-                      </div>
-                      {envUrls[e.id].length > 6 && <div className="muted" style={{ marginTop: "0.25rem" }}>更多入口请进入环境详情查看</div>}
-                    </>
-                  ) : (
+                          ))}
+                        </div>
+                        {envUrls[e.id].length > 6 && <div className="url-list-hint">更多入口请进入环境详情查看</div>}
+                      </>
+                    ) : (
                     <div className="muted">暂无可计算的 URL（请先配置 base_domain / host template，或该环境暂无服务）</div>
                   )}
                   <div className="repo-meta">创建时间：{new Date(e.created_at).toLocaleString()}</div>

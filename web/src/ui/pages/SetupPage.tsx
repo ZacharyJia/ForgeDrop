@@ -127,11 +127,11 @@ export function SetupPage() {
             </div>
 
 			<details className="info-box" open>
-				<summary style={{ cursor: "pointer" }}>
+				<summary className="collapsible-summary">
 					<strong>基础设施初始化（可选）</strong>
 					<span className="muted">（内网推荐：DNS-01 阿里云）</span>
 				</summary>
-				<div style={{ marginTop: "0.75rem" }}>
+				<div className="setup-infra-content">
 					<div className="form-group">
 						<label>
 							<input type="checkbox" checked={configureInfra} onChange={(e) => setConfigureInfra(e.target.checked)} />{" "}
@@ -158,7 +158,7 @@ export function SetupPage() {
 								<input type="text" value={acmeEmail} onChange={(e) => setAcmeEmail(e.target.value)} placeholder="admin@example.com" />
 							</div>
 
-							<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+							<div className="two-col-grid">
 								<div className="form-group">
 									<label>ALICLOUD_ACCESS_KEY</label>
 									<input type="text" value={aliAccessKey} onChange={(e) => setAliAccessKey(e.target.value)} placeholder="access key id" />
@@ -207,7 +207,7 @@ export function SetupPage() {
               {setupMutation.isPending ? "初始化中..." : "创建并登录"}
             </button>
 
-            <div style={{ marginTop: "1rem" }}>
+            <div className="setup-back-link-wrap">
               <Link to="/login" className="btn-link">返回登录</Link>
             </div>
           </form>

@@ -111,7 +111,12 @@ export function SettingsPage() {
 
   return (
     <div className="settings-page">
-      <h1>设置</h1>
+      <div className="page-header">
+        <div>
+          <h1>设置</h1>
+          <p className="section-desc">配置域名、网络、证书与集成地址。</p>
+        </div>
+      </div>
 
       <form onSubmit={handleSubmit} className="settings-form">
         <div className="form-section">
@@ -214,18 +219,18 @@ export function SettingsPage() {
                 <div className="info-item"><strong>Aliyun DNS 凭证</strong> <span className="muted">（用于创建 TXT 记录）</span></div>
                 <div className="muted">出于安全考虑，保存后不会回显明文。</div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "0.75rem" }}>
-                  <div className="form-group" style={{ margin: 0 }}>
+                <div className="two-col-grid settings-cred-grid">
+                  <div className="form-group form-group-compact">
                     <label>ALICLOUD_ACCESS_KEY</label>
                     <input type="text" value={aliAccessKey} onChange={(e) => setAliAccessKey(e.target.value)} placeholder="access key id" />
                   </div>
-                  <div className="form-group" style={{ margin: 0 }}>
+                  <div className="form-group form-group-compact">
                     <label>ALICLOUD_SECRET_KEY</label>
                     <input type="password" value={aliSecretKey} onChange={(e) => setAliSecretKey(e.target.value)} placeholder="access key secret" />
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                <div className="settings-inline-actions settings-inline-actions-spaced">
                   <button className="btn-secondary" type="button" onClick={() => saveAliCredsMutation.mutate()} disabled={saveAliCredsMutation.isPending}>
                     {saveAliCredsMutation.isPending ? "保存中..." : "保存凭证"}
                   </button>
@@ -239,7 +244,7 @@ export function SettingsPage() {
 
 			  <div className="info-box">
 				<div className="info-item"><strong>通配符证书（Wildcard）</strong> <span className="muted">（推荐）</span></div>
-				<div className="form-group" style={{ marginTop: "0.75rem" }}>
+				<div className="form-group settings-form-group-top">
 				  <label>
 					<input
 					  type="checkbox"
@@ -250,7 +255,7 @@ export function SettingsPage() {
 				  </label>
 				  <p className="help-text">开启后，Traefik 会自动申请并复用通配符证书，避免为每个子域重复签发。</p>
 				</div>
-				<div className="form-group" style={{ marginTop: "0.5rem" }}>
+				<div className="form-group settings-form-group-mid">
 				  <label>
 					<input
 					  type="checkbox"
@@ -275,27 +280,27 @@ export function SettingsPage() {
               <span className="muted">未检测</span>
             )}</div>
             {traefikStatusQuery.isError && (
-              <div className="error" style={{ marginTop: "0.5rem" }}>{String(traefikStatusQuery.error)}</div>
+              <div className="error settings-error-inline">{String(traefikStatusQuery.error)}</div>
             )}
             {traefikStatusQuery.data && (
-              <div style={{ marginTop: "0.5rem" }}>
+              <div className="settings-traefik-status-body">
                 <div className="muted">{traefikStatusQuery.data.message}</div>
-                <div style={{ marginTop: "0.5rem" }} className="muted">
+                <div className="muted settings-status-line-lg">
                   network=<code>{traefikStatusQuery.data.network_name}</code> container=<code>{traefikStatusQuery.data.container_name}</code>
                 </div>
-                <div style={{ marginTop: "0.25rem" }} className="muted">
+                <div className="muted settings-status-line-sm">
                   acme=<code>{traefikStatusQuery.data.acme_mode}</code>
                 </div>
 
 				{traefikStatusQuery.data.dashboard_enabled && traefikStatusQuery.data.dashboard_url && (
-				  <div style={{ marginTop: "0.25rem" }}>
+				  <div className="settings-status-line-sm">
 					<strong>Dashboard：</strong>{" "}
 					<a href={traefikStatusQuery.data.dashboard_url} target="_blank" rel="noreferrer">{traefikStatusQuery.data.dashboard_url}</a>
 				  </div>
 				)}
               </div>
             )}
-            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
+            <div className="settings-inline-actions settings-inline-actions-spaced settings-inline-actions-wrap">
               <button className="btn-secondary" type="button" onClick={() => traefikStatusQuery.refetch()} disabled={traefikStatusQuery.isFetching}>
                 {traefikStatusQuery.isFetching ? "检测中..." : "检测 Traefik"}
               </button>
@@ -305,7 +310,7 @@ export function SettingsPage() {
                 </button>
               )}
             </div>
-            <p className="help-text" style={{ marginTop: "0.75rem" }}>
+            <p className="help-text settings-help-top">
               注意：一键安装会尝试启动一个由 forge-drop 管理的 Traefik 容器，并绑定宿主机 80/443 端口；如果端口已被占用会失败。
             </p>
           </div>
@@ -359,25 +364,25 @@ export function SettingsPage() {
           <p className="help-text">会删除数据库中未被任何快照引用的 artifacts，并尝试删除对应磁盘文件。也会清理没有任何引用的孤儿 snapshots。</p>
           <p className="help-text">不会删除当前环境正在使用（current snapshot）或历史快照引用的 artifacts。</p>
 
-          <div className="form-group" style={{ marginTop: "0.75rem" }}>
+          <div className="form-group settings-form-group-top">
             <label>
               <input type="checkbox" checked={pruneDryRun} onChange={(e) => setPruneDryRun(e.target.checked)} />{" "}
               先模拟（dry-run）
             </label>
           </div>
 
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <div className="settings-inline-actions settings-inline-actions-wrap">
             <button className="btn-secondary" type="button" onClick={() => pruneMutation.mutate()} disabled={pruneMutation.isPending}>
               {pruneMutation.isPending ? '执行中...' : pruneDryRun ? '模拟清理' : '立即清理'}
             </button>
           </div>
 
-          {pruneMutation.error && <div className="error" style={{ marginTop: "0.75rem" }}>{String(pruneMutation.error)}</div>}
+          {pruneMutation.error && <div className="error settings-error-top">{String(pruneMutation.error)}</div>}
           {pruneResult && (
-            <div style={{ marginTop: "0.75rem" }}>
+            <div className="settings-prune-result">
               <div className="muted">artifacts_removed=<code>{String(pruneResult.artifacts_removed)}</code> snapshots_removed=<code>{String(pruneResult.snapshots_removed)}</code> bytes_removed=<code>{String(pruneResult.bytes_removed)}</code></div>
               {Array.isArray(pruneResult.errors) && pruneResult.errors.length > 0 && (
-                <pre style={{ marginTop: "0.5rem", whiteSpace: "pre-wrap" }}>{pruneResult.errors.join("\n")}</pre>
+                <pre className="pre-wrap settings-prune-errors">{pruneResult.errors.join("\n")}</pre>
               )}
             </div>
           )}

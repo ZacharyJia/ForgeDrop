@@ -208,7 +208,7 @@ export function DocsPage() {
             <div className="info-box">
               <p className="muted">说明：管理台接口以 cookie session 认证；CI 上传接口以 Bearer Token 认证。</p>
 
-              <h3 style={{ marginTop: "0.25rem" }}>认证</h3>
+              <h3 className="doc-subtitle doc-subtitle-tight">认证</h3>
               <ul className="doc-list">
                 <li><code>GET /api/v1/setup/status</code> - 是否允许首次初始化</li>
                 <li><code>POST /api/v1/setup</code> JSON: <code>{"{"}username,password{"}"}</code>（仅允许一次）</li>
@@ -217,13 +217,13 @@ export function DocsPage() {
                 <li><code>GET /api/v1/admin/me</code></li>
               </ul>
 
-              <h3 style={{ marginTop: "0.75rem" }}>Artifacts（CI）</h3>
+              <h3 className="doc-subtitle">Artifacts（CI）</h3>
               <ul className="doc-list">
                 <li><code>POST /api/v1/artifacts/upload</code> multipart（单文件）</li>
                 <li><code>POST /api/v1/artifacts/upload-batch</code> multipart（批量）</li>
               </ul>
 
-              <h3 style={{ marginTop: "0.75rem" }}>Service 观测与操作（管理台）</h3>
+              <h3 className="doc-subtitle">Service 观测与操作（管理台）</h3>
               <ul className="doc-list">
                 <li><code>GET /api/v1/admin/services/:serviceID/status?env_id=...</code></li>
                 <li><code>GET /api/v1/admin/services/:serviceID/logs?env_id=...&amp;tail=200</code></li>
@@ -231,14 +231,14 @@ export function DocsPage() {
                 <li><code>POST /api/v1/admin/services/:serviceID/redeploy</code> JSON: <code>{"{"}env_id{"}"}</code>（强制重建）</li>
               </ul>
 
-              <h3 style={{ marginTop: "0.75rem" }}>Env 快照</h3>
+              <h3 className="doc-subtitle">Env 快照</h3>
               <ul className="doc-list">
                 <li><code>GET /api/v1/admin/envs/:envID</code></li>
                 <li><code>GET /api/v1/admin/envs/:envID/snapshots</code></li>
                 <li><code>POST /api/v1/admin/envs/:envID/rollback</code> JSON: <code>{"{"}snapshot_id{"}"}</code></li>
               </ul>
 
-              <h3 style={{ marginTop: "0.75rem" }}>配置/仓库/令牌（管理台）</h3>
+              <h3 className="doc-subtitle">配置/仓库/令牌（管理台）</h3>
               <ul className="doc-list">
                 <li><code>GET/PUT /api/v1/admin/settings</code></li>
                 <li><code>GET /api/v1/admin/traefik/status</code></li>

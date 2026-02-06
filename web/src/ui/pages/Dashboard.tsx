@@ -25,7 +25,13 @@ export function Dashboard() {
 
   return (
     <div className="dashboard">
-      <h1>概览</h1>
+      <div className="page-header">
+        <div>
+          <h1>概览</h1>
+          <p className="section-desc">集中查看部署规模、配置入口与最近应用状态。</p>
+        </div>
+        <Link to="/apps" className="btn-primary">进入应用管理</Link>
+      </div>
       
       <div className="stats-grid">
         <div className="stat-card">
@@ -56,7 +62,7 @@ export function Dashboard() {
           <li>生成 <Link to="/tokens">API 令牌</Link> 供 CI 上传制品</li>
           <li>从 CI 流水线上传制品（artifact）</li>
         </ol>
-        <div style={{ marginTop: "1rem" }}>
+        <div className="dashboard-cta-row">
           <Link to="/docs" className="btn-secondary">查看详细文档</Link>
         </div>
       </div>

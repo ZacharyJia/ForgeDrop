@@ -52,11 +52,16 @@ export function TokensPage() {
   return (
     <div className="tokens-page">
       <div className="page-header">
-        <h1>API 令牌</h1>
+        <div>
+          <h1>API 令牌</h1>
+          <p className="section-desc">用于 CI 上传制品与自动部署触发。</p>
+        </div>
         <button onClick={() => setShowCreate(true)} className="btn-primary">
           + 创建令牌
         </button>
       </div>
+
+      <div className="list-meta">共 {tokens?.length || 0} 个令牌</div>
 
       {showCreate && !newToken && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>

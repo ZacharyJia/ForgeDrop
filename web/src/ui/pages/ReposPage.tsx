@@ -57,11 +57,16 @@ export function ReposPage() {
   return (
     <div className="repos-page">
       <div className="page-header">
-        <h1>仓库</h1>
+        <div>
+          <h1>仓库</h1>
+          <p className="section-desc">绑定代码仓库并管理 Webhook 鉴权。</p>
+        </div>
         <button onClick={() => setShowCreate(true)} className="btn-primary">
           + 添加仓库
         </button>
       </div>
+
+      <div className="list-meta">共 {repos?.length || 0} 个仓库</div>
 
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>

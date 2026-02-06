@@ -49,11 +49,16 @@ export function AppsPage() {
   return (
     <div className="apps-page">
       <div className="page-header">
-        <h1>应用</h1>
+        <div>
+          <h1>应用</h1>
+          <p className="section-desc">管理应用、服务和环境入口。</p>
+        </div>
         <button onClick={() => setShowCreate(true)} className="btn-primary">
           + 新建应用
         </button>
       </div>
+
+      <div className="list-meta">共 {apps?.length || 0} 个应用</div>
 
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>

@@ -127,6 +127,7 @@ export function ServiceEditPage() {
             )}
 
             <CodeMirror
+              className="compose-editor"
               value={formData.compose_template || ""}
               height="520px"
               extensions={[yaml()]}
@@ -135,11 +136,6 @@ export function ServiceEditPage() {
                 lineNumbers: true,
                 foldGutter: true,
                 highlightActiveLine: true,
-              }}
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "0.375rem",
-                overflow: "hidden",
               }}
             />
             <p className="help-text">
@@ -167,8 +163,12 @@ export function ServiceEditPage() {
             <label>服务端口（供模板变量 .Port 使用）</label>
             <input
               type="number"
+              min={1}
               value={formData.container_port || 8080}
-              onChange={(e) => setFormData({ ...formData, container_port: parseInt(e.target.value) })}
+              onChange={(e) => {
+                const nextPort = Number.parseInt(e.target.value, 10);
+                setFormData({ ...formData, container_port: Number.isNaN(nextPort) ? 8080 : nextPort });
+              }}
             />
             <p className="help-text">一般是容器内部服务监听端口（例如 8080）。</p>
           </div>

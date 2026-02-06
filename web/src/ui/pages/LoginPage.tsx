@@ -39,7 +39,7 @@ export function LoginPage() {
         <p className="subtitle">自托管部署平台</p>
 
         {setupStatusQuery.data?.allowed && (
-          <div className="info-box" style={{ marginBottom: "1.25rem" }}>
+          <div className="info-box login-setup-tip">
             <div className="info-item"><strong>首次使用：</strong>系统尚未初始化</div>
             <Link to="/setup" className="btn-secondary">创建管理员账号</Link>
           </div>

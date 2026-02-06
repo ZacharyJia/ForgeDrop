@@ -118,7 +118,7 @@ function ServicePanel(props: {
 
   return (
     <details className="service-card" open>
-      <summary className="service-header" style={{ cursor: "pointer" }}>
+      <summary className="service-header service-panel-summary">
         <div>
           <h3>{service.name}</h3>
           <div className="service-key">{service.service_key}</div>
@@ -129,7 +129,7 @@ function ServicePanel(props: {
         </div>
       </summary>
 
-      <div className="service-body" style={{ marginTop: "0.75rem" }}>
+      <div className="service-body service-panel-body">
         <div className="info-box">
           <div className="info-item"><strong>端口：</strong> {service.container_port}</div>
           {statusQuery.data?.service_url && (
@@ -139,7 +139,7 @@ function ServicePanel(props: {
             <div className="info-item"><strong>当前快照（desired）：</strong> <code>{String(statusQuery.data.desired_snapshot_id)}</code></div>
           )}
 
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+          <div className="panel-actions">
             <button className="btn-secondary" type="button" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>
               {statusQuery.isFetching ? "刷新中..." : "刷新状态"}
             </button>
@@ -152,27 +152,31 @@ function ServicePanel(props: {
           </div>
 
           {statusQuery.data?.ps && (
-            <div style={{ marginTop: "0.75rem" }}>
-              <div className="muted" style={{ marginBottom: "0.25rem" }}>docker compose ps</div>
-              <pre style={{ whiteSpace: "pre-wrap" }}>{String(statusQuery.data.ps)}</pre>
+            <div className="status-block">
+              <div className="status-label">docker compose ps</div>
+              <pre className="pre-wrap">{String(statusQuery.data.ps)}</pre>
             </div>
           )}
           {statusQuery.data?.ps_error && (
-            <div className="error" style={{ marginTop: "0.5rem" }}>{String(statusQuery.data.ps_error)}</div>
+            <div className="error status-error">{String(statusQuery.data.ps_error)}</div>
           )}
           {!statusQuery.data?.ps && !statusQuery.isPending && (
-            <div className="muted" style={{ marginTop: "0.5rem" }}>暂无运行状态（可能尚未部署）。</div>
+            <div className="status-muted">暂无运行状态（可能尚未部署）。</div>
           )}
 
-          <div className="info-box" style={{ marginTop: "0.75rem" }}>
-            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
-              <div className="form-group" style={{ margin: 0 }}>
+          <div className="info-box logs-box">
+            <div className="logs-controls">
+              <div className="form-group form-group-compact">
                 <label>日志 tail</label>
                 <input
                   type="number"
+                  min={20}
                   value={logsTail}
-                  onChange={(e) => setLogsTail(parseInt(e.target.value || "200", 10))}
-                  style={{ width: "120px" }}
+                  onChange={(e) => {
+                    const nextTail = Number.parseInt(e.target.value || "200", 10);
+                    setLogsTail(Number.isNaN(nextTail) ? 200 : Math.max(20, nextTail));
+                  }}
+                  className="logs-tail-input"
                 />
               </div>
               <button className="btn-secondary" type="button" onClick={() => fetchLogsMutation.mutate()} disabled={fetchLogsMutation.isPending}>
@@ -180,14 +184,14 @@ function ServicePanel(props: {
               </button>
             </div>
             {logsText && (
-              <pre style={{ marginTop: "0.75rem", whiteSpace: "pre-wrap" }}>{logsText}</pre>
+              <pre className="pre-wrap logs-output">{logsText}</pre>
             )}
           </div>
         </div>
 
         <div className="info-box">
-          <div className="section-header" style={{ marginBottom: "0.75rem" }}>
-            <h2 style={{ fontSize: "1.1rem" }}>槽位与文件版本</h2>
+          <div className="section-header section-header-compact">
+            <h2 className="section-title-sm">槽位与文件版本</h2>
             <p className="section-desc">当前环境下，槽位绑定到当前快照（snapshot）的 artifact。</p>
           </div>
           {slots.length === 0 ? (
@@ -197,7 +201,7 @@ function ServicePanel(props: {
               {slots.map((sl) => {
                 const a = artifactsBySlotKey[sl.slot_key];
                 return (
-                  <div key={sl.id} style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
+                  <div key={sl.id} className="slot-row">
                     <div className="info-item"><strong>{sl.name}</strong> <span className="muted">({sl.slot_key} → <code>{sl.container_path}</code>)</span></div>
                     {a ? <ArtifactRow a={a} /> : <div className="muted">未上传</div>}
                   </div>
@@ -228,7 +232,7 @@ function ServicePanel(props: {
 			</div>
 		  )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+          <div className="two-col-grid">
             <div className="form-group">
               <label>sha（可选）</label>
               <input type="text" value={sha} onChange={(e) => setSha(e.target.value)} placeholder="commit sha" />
@@ -363,7 +367,7 @@ export function EnvDetailPage() {
             App：<Link to={`/apps/${data.app.id}`}>{data.app.name}</Link> · EnvID：<code>{data.env.id}</code>
           </div>
         </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div className="env-toolbar">
           <button
             className="btn-danger-small"
             type="button"
@@ -395,8 +399,8 @@ export function EnvDetailPage() {
         )}
 
         {serviceLinks.length > 0 && (
-          <div style={{ marginTop: "0.75rem" }}>
-            <div className="muted" style={{ marginBottom: "0.25rem" }}>服务入口</div>
+          <div className="env-links">
+            <div className="env-links-title">服务入口</div>
             <div className="url-chips">
               {serviceLinks.map((x) => (
                 <a key={x.id} className="url-chip" href={x.url!} target="_blank" rel="noreferrer">
@@ -410,10 +414,10 @@ export function EnvDetailPage() {
       </div>
 
       <details className="info-box">
-        <summary style={{ cursor: "pointer" }}>
+        <summary className="collapsible-summary">
           <strong>快照历史</strong> <span className="muted">（回滚会同时应用部署）</span>
         </summary>
-        <div style={{ marginTop: "0.75rem" }}>
+        <div className="snapshots-content">
           {snapshotsQuery.isPending ? (
             <div className="muted">加载快照中...</div>
           ) : snapshotsQuery.isError ? (
@@ -423,10 +427,10 @@ export function EnvDetailPage() {
           ) : (
             <div>
               {snapshotsQuery.data!.slice(0, 30).map((sn: any) => (
-                <div key={sn.id} style={{ display: "flex", justifyContent: "space-between", gap: "1rem", padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
-                  <div style={{ minWidth: 0 }}>
+                <div key={sn.id} className="snapshot-row">
+                  <div className="snapshot-meta">
                     <div><strong>{new Date(sn.created_at).toLocaleString()}</strong> <span className="muted">·</span> <code>{sn.id}</code></div>
-                    {sn.note && <div className="muted" style={{ wordBreak: "break-word" }}>{sn.note}</div>}
+                    {sn.note && <div className="muted snapshot-note">{sn.note}</div>}
                   </div>
                   <button
                     className="btn-secondary"

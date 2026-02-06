@@ -69,7 +69,7 @@ export function ServiceDetailPage() {
           <h1>槽位配置：{service.name}</h1>
           <div className="app-key-badge">{service.service_key}</div>
         </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div className="service-detail-toolbar">
           <Link to={`/services/${service.id}/edit`} className="btn-secondary">
             编辑模板
           </Link>
@@ -117,8 +117,8 @@ export function ServiceDetailPage() {
           <p className="section-desc">一个服务可以有多个 slot（例如 jar + config + assets）。</p>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <div className="muted">当前槽位数：{slots.length}</div>
+        <div className="section-toolbar">
+          <div className="section-toolbar-note">当前槽位数：{slots.length}</div>
           <button className="btn-primary" onClick={() => setShowCreateSlot(true)}>
             + 新建槽位
           </button>
