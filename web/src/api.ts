@@ -40,6 +40,11 @@ export interface Env {
   name: string;
   created_at: string;
   current_snapshot_id?: string | null;
+  repo_id?: string | null;
+  pr_number?: number | null;
+  repo_full_name?: string | null;
+  repo_slug?: string | null;
+  deleted_at?: string | null;
 }
 
 export interface Slot {
@@ -191,6 +196,12 @@ export const api = {
     return apiFetch(`/api/v1/admin/envs/${envId}/rollback`, {
       method: 'POST',
       body: JSON.stringify({ snapshot_id: snapshotId }),
+    });
+  },
+
+  async syncEnvFromPreviewSnapshot(envId: string): Promise<{ ok: boolean; snapshot_id: string }> {
+    return apiFetch(`/api/v1/admin/envs/${envId}/sync-preview-snapshot`, {
+      method: 'POST',
     });
   },
 

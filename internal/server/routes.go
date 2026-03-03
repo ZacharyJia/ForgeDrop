@@ -1191,6 +1191,50 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{"snapshot_id": *cur, "artifacts_by_slot_key": out})
 		return
 	}
+	if len(parts) >= 2 && parts[1] == "sync-preview-snapshot" && r.Method == "POST" {
+		env, err := s.store.GetEnvByID(r.Context(), envID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusNotFound, "unknown env")
+			return
+		}
+		if env.Kind != "preview" || env.RepoID == nil || env.PRNumber == nil {
+			httpx.WriteError(w, http.StatusBadRequest, "only PR preview env can sync from preview template")
+			return
+		}
+		tplEnvID, err := s.store.GetEnvIDByName(r.Context(), env.AppID, "preview")
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				httpx.WriteError(w, http.StatusBadRequest, "preview template env not found")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		tplSnap, err := s.store.GetEnvCurrentSnapshotID(r.Context(), tplEnvID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		if tplSnap == nil {
+			httpx.WriteError(w, http.StatusBadRequest, "preview template has no snapshot yet")
+			return
+		}
+		snapID := strings.TrimSpace(*tplSnap)
+		if snapID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "preview template has no snapshot yet")
+			return
+		}
+		if err := s.store.SetEnvCurrentSnapshot(r.Context(), envID, snapID); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
+			return
+		}
+		if err := s.deployer.DeployEnv(r.Context(), envID, ""); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "snapshot_id": snapID})
+		return
+	}
 	if len(parts) >= 2 && parts[1] == "snapshots" && r.Method == "GET" {
 		snaps, err := s.store.ListSnapshots(r.Context(), envID)
 		if err != nil {

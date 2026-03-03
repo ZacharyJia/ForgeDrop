@@ -184,6 +184,9 @@ export function DocsPage() {
                 当 CI 上传时使用 <code>env=preview</code> 并携带 <code>pr_number</code>，系统会为该 PR 创建/更新独立的预览环境，并继承模板环境的当前快照。
               </p>
               <p>
+                若你更新了命名环境 <code>preview</code> 的快照，可在 PR 环境详情页点击“同步 Preview 快照”，把模板的最新快照同步并应用到当前 PR 环境。
+              </p>
+              <p>
                 当 Forgejo webhook 收到 <code>pull_request closed</code> 后，会自动清理对应 PR preview 的 runtime 目录与 compose project。
               </p>
               <p className="muted">提示：你仍然需要 DNS 通配解析与 Traefik 路由规则才能访问 preview URL。</p>
@@ -236,6 +239,7 @@ export function DocsPage() {
                 <li><code>GET /api/v1/admin/envs/:envID</code></li>
                 <li><code>GET /api/v1/admin/envs/:envID/snapshots</code></li>
                 <li><code>POST /api/v1/admin/envs/:envID/rollback</code> JSON: <code>{"{"}snapshot_id{"}"}</code></li>
+                <li><code>POST /api/v1/admin/envs/:envID/sync-preview-snapshot</code>（仅 PR preview 环境）</li>
               </ul>
 
               <h3 className="doc-subtitle">配置/仓库/令牌（管理台）</h3>

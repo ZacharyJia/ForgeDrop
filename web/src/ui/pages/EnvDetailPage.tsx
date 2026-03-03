@@ -309,6 +309,16 @@ export function EnvDetailPage() {
     onError: (e) => toast.error(String(e), "回滚失败"),
   });
 
+  const syncPreviewSnapshotMutation = useMutation({
+    mutationFn: () => api.syncEnvFromPreviewSnapshot(envId!),
+    onSuccess: (res) => {
+      toast.success(`已同步并应用模板快照：${res.snapshot_id}`);
+      queryClient.invalidateQueries({ queryKey: ["env", envId] });
+      queryClient.invalidateQueries({ queryKey: ["envSnapshots", envId] });
+    },
+    onError: (e) => toast.error(String(e), "同步失败"),
+  });
+
   const deleteEnvMutation = useMutation({
     mutationFn: () => api.deleteEnv(envId!),
     onSuccess: () => {
@@ -325,6 +335,7 @@ export function EnvDetailPage() {
   const data = envQuery.data;
   const services = data?.services ?? [];
   const slotsByService = data?.slots_by_service ?? {};
+  const isPRPreviewEnv = data?.env?.kind === "preview" && !!data?.env?.repo_id && !!data?.env?.pr_number;
 
   const namedEnvInfo = useMemo(() => {
     if (!data?.env) return null;
@@ -368,6 +379,20 @@ export function EnvDetailPage() {
           </div>
         </div>
         <div className="env-toolbar">
+          {isPRPreviewEnv && (
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => {
+                if (confirm("确认从命名环境 preview 同步最新快照，并立即应用到当前 PR 环境？")) {
+                  syncPreviewSnapshotMutation.mutate();
+                }
+              }}
+              disabled={syncPreviewSnapshotMutation.isPending}
+            >
+              {syncPreviewSnapshotMutation.isPending ? "同步中..." : "同步 Preview 快照"}
+            </button>
+          )}
           <button
             className="btn-danger-small"
             type="button"

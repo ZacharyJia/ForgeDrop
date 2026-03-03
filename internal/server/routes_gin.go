@@ -170,6 +170,9 @@ func (s *Server) routes() http.Handler {
 	})
 	admin.POST("/envs/:envID/deploy", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/deploy") })
 	admin.POST("/envs/:envID/rollback", func(c *gin.Context) { s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/rollback") })
+	admin.POST("/envs/:envID/sync-preview-snapshot", func(c *gin.Context) {
+		s.handleAdminEnvs(c.Writer, c.Request, "/"+c.Param("envID")+"/sync-preview-snapshot")
+	})
 
 	// Artifact upload (token)
 	r.POST("/api/v1/artifacts/upload", s.requireBearerTokenGin(), func(c *gin.Context) {
