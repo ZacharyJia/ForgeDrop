@@ -7,7 +7,7 @@
 - App：一个应用（例如一个后端系统）
 - Service：一个服务（容器 / Compose 项目内的一组容器配置）
 - Slot：挂载点。每个 slot 绑定一个 repo，并指定容器内路径（例如 `/app/app.jar`）
-- Env：环境。命名环境如 `prod`/`staging`；预览环境为 `preview`（按 PR）
+- Env：环境。命名环境如 `prod`/`staging`；预览环境为 `preview`（按 PR/change-set）
 - Artifact：一次上传的文件（JAR 或任意文件）
 - Snapshot：一次版本指针。Env 的 `current_snapshot` 表示“期望运行的版本（desired）”
 
@@ -29,7 +29,8 @@
 ## Preview 模板与 PR 预览
 
 - 系统会创建一个命名环境 `preview` 作为模板环境（可用于共享预览，也用于 PR 预览继承）。
-- 当 CI 上传使用 `env=preview` 并携带 `pr_number` 时，会自动创建/更新一个 PR 专属 preview 环境，并继承模板环境的当前快照。
+- 当 CI 上传使用 `env=preview` 并携带 `pr_number` 或 `change_set` 时，会自动创建/更新一个 preview 子环境，并继承模板环境的当前快照。
+- 当 CI 上传使用 `env=preview` 且传 `env_kind=named` 时，会直接更新命名环境 `preview`（模板环境），此模式下不允许再传 `pr_number`/`change_set`。
 - 如果模板环境 `preview` 的快照有更新，可在 PR 环境详情页点击“同步 Preview 快照”，将模板最新快照同步并立即应用到当前 PR 环境。
 
 ## 管理台配置流程（建议顺序）
@@ -63,9 +64,16 @@
 - `app` / `service` / `slot`
 - `env`：`prod` / `staging` / `preview`
 - `repo`：`owner/repo`（必须匹配 slot 绑定的 repo）
-- `pr_number`：当 `env=preview` 必填
+- `pr_number`：用于 PR preview 环境
+- `change_set`：用于 change-set preview 环境（与 `pr_number` 同时传时，`change_set` 优先）
+- `env_kind`：可选；当 `env=preview` 且希望直接更新命名模板环境时传 `named`
 - `deploy`：可选；`1`（默认）上传后自动部署；`0` 仅创建快照并更新当前版本，等待手动部署
 - 文件字段：`artifact=@xxx.jar`
+
+`env=preview` 的行为规则：
+
+- 默认（不传 `env_kind`）：必须提供 `pr_number` 或 `change_set`，会创建/更新 repo-scoped preview 子环境
+- 传 `env_kind=named`：会直接更新命名环境 `preview`（模板环境）；此时不允许再传 `pr_number` / `change_set`
 
 示例：
 
@@ -90,6 +98,7 @@ curl -X POST \
 接口：`POST /api/v1/artifacts/upload-batch`
 
 - 与单文件上传相同的字段：`app/env/service/repo/sha/ref/pr_number/deploy`
+- 同样支持：`change_set`、`env_kind`
 - 文件字段使用 `file_<slotKey>`，其中 `<slotKey>` 为服务下 slot 的 `slot_key`
 
 示例：
@@ -106,6 +115,11 @@ curl -X POST \
   -F "file_config=@build/config.zip" \
   http://your-server:8080/api/v1/artifacts/upload-batch
 ```
+
+## 下载当前生效制品
+
+- 管理台登录态可调用：`GET /api/v1/admin/artifacts/:artifactID/download`
+- 在环境详情页的“槽位与文件版本”卡片中，每个已绑定的 artifact 都可直接点击“下载”
 
 ## 手动上传 / 手动部署
 

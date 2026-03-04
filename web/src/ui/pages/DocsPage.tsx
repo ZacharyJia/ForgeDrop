@@ -39,7 +39,7 @@ export function DocsPage() {
                 <li><strong>App</strong>：一个应用（例如一个后端系统）。</li>
                 <li><strong>Service</strong>：一个服务（容器/Compose 项目内的一组容器配置）。</li>
                 <li><strong>Slot</strong>：挂载点。每个 slot 绑定一个 repo，并指定容器内路径（例如 <code>/app/app.jar</code>）。</li>
-                <li><strong>Env</strong>：环境。命名环境如 <code>prod</code>/<code>staging</code>；预览环境为 <code>preview</code>（按 PR）。</li>
+                <li><strong>Env</strong>：环境。命名环境如 <code>prod</code>/<code>staging</code>；预览环境为 <code>preview</code>（按 PR/change-set）。</li>
                 <li><strong>Artifact</strong>：一次上传的文件（JAR 或任意文件）。</li>
                 <li><strong>Snapshot</strong>：一次“版本指针”。Env 有一个 <code>current_snapshot</code>，表示“期望运行的版本（desired）”。</li>
               </ul>
@@ -115,10 +115,16 @@ export function DocsPage() {
                 <li><code>app</code>/<code>service</code>/<code>slot</code>：管理台配置</li>
                 <li><code>env</code>：<code>prod</code>/<code>staging</code>/<code>preview</code></li>
                 <li><code>repo</code>：<code>owner/repo</code>（必须匹配 slot 绑定的 repo）</li>
-                <li><code>pr_number</code>：当 <code>env=preview</code> 必填</li>
+                <li><code>pr_number</code>：用于 PR preview 环境</li>
+                <li><code>change_set</code>：用于 change-set preview 环境（与 <code>pr_number</code> 同时传时优先）</li>
+                <li><code>env_kind</code>：可选；当 <code>env=preview</code> 且希望直接更新模板环境时传 <code>named</code></li>
                 <li><code>deploy</code>：可选，<code>1</code>（默认）自动部署；<code>0</code> 仅更新版本，等待手动部署</li>
                 <li>文件字段：<code>artifact=@xxx.jar</code></li>
               </ul>
+              <p className="muted">
+                规则：<code>env=preview</code> 默认需要 <code>pr_number</code> 或 <code>change_set</code>（创建/更新 preview 子环境）；
+                仅当传 <code>env_kind=named</code> 时才会直接更新命名环境 <code>preview</code>（且不能再传 <code>pr_number</code>/<code>change_set</code>）。
+              </p>
               <pre>
 <code>{`curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
@@ -143,7 +149,7 @@ export function DocsPage() {
               </p>
               <p>接口：<code>POST /api/v1/artifacts/upload-batch</code></p>
               <ul className="doc-list">
-                <li>字段同单文件上传：<code>app/env/service/repo/sha/ref/pr_number/deploy</code></li>
+                <li>字段同单文件上传：<code>app/env/service/repo/sha/ref/pr_number/change_set/env_kind/deploy</code></li>
                 <li>文件字段使用 <code>file_&lt;slotKey&gt;</code>（slotKey 为服务下 slot 的 <code>slot_key</code>）</li>
               </ul>
               <pre>
@@ -181,7 +187,10 @@ export function DocsPage() {
                 系统默认会创建一个命名环境 <code>preview</code> 作为模板环境（可用于共享预览，也用于 PR 预览的配置/版本继承）。
               </p>
               <p>
-                当 CI 上传时使用 <code>env=preview</code> 并携带 <code>pr_number</code>，系统会为该 PR 创建/更新独立的预览环境，并继承模板环境的当前快照。
+                当 CI 上传时使用 <code>env=preview</code> 并携带 <code>pr_number</code> 或 <code>change_set</code>，系统会创建/更新独立的 preview 子环境，并继承模板环境的当前快照。
+              </p>
+              <p>
+                若你希望 CI 直接更新模板环境，请传 <code>env=preview</code> + <code>env_kind=named</code>（此模式下不可再传 <code>pr_number</code>/<code>change_set</code>）。
               </p>
               <p>
                 若你更新了命名环境 <code>preview</code> 的快照，可在 PR 环境详情页点击“同步 Preview 快照”，把模板的最新快照同步并应用到当前 PR 环境。
@@ -232,6 +241,7 @@ export function DocsPage() {
                 <li><code>GET /api/v1/admin/services/:serviceID/logs?env_id=...&amp;tail=200</code></li>
                 <li><code>POST /api/v1/admin/services/:serviceID/deploy</code> JSON: <code>{"{"}env_id{"}"}</code></li>
                 <li><code>POST /api/v1/admin/services/:serviceID/redeploy</code> JSON: <code>{"{"}env_id{"}"}</code>（强制重建）</li>
+                <li><code>GET /api/v1/admin/artifacts/:artifactID/download</code>（下载当前版本文件）</li>
               </ul>
 
               <h3 className="doc-subtitle">Env 快照</h3>

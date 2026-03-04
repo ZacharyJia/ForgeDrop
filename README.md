@@ -48,12 +48,23 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 - `app` / `service` / `slot`：在管理台配置
 - `env`：`prod` / `staging` / `preview`
 - `repo`：`owner/name`（必须匹配 slot 绑定的 repo）
-- `pr_number`：当 `env=preview` 必填
+- `pr_number`：用于 PR preview 环境
+- `change_set`：用于 change-set preview 环境（与 `pr_number` 同时传时，`change_set` 优先）
+- `env_kind`：可选；当 `env=preview` 且希望直接更新命名模板环境时传 `named`
 - `deploy`：可选，`1`（默认）表示上传后自动部署；`0` 表示仅创建快照并更新当前版本，等待手动部署
 - 文件字段：`artifact=@xxx.jar`
 
+`env=preview` 的行为规则：
+- 默认（不传 `env_kind`）：必须提供 `pr_number` 或 `change_set`，会创建/更新 repo-scoped preview 子环境
+- 传 `env_kind=named`：会直接更新命名环境 `preview`（模板环境）；此时不允许再传 `pr_number` / `change_set`
+
 批量上传：`POST /api/v1/artifacts/upload-batch`
+- 字段规则与单文件上传一致（含 `change_set` / `env_kind`）
 - 文件字段使用 `file_<slotKey>=@...`，例如：`file_main=@app.jar`、`file_config=@config.zip`
+
+下载制品（管理台登录态）：
+- `GET /api/v1/admin/artifacts/:artifactID/download`
+- 环境详情页“槽位与文件版本”卡片可直接下载当前生效版本
 
 示例（curl）：
 

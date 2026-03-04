@@ -1310,6 +1310,7 @@ func (s *Server) handleArtifactUpload(c *gin.Context) {
 	deployStrategyRaw := get("deploy_strategy")
 	appKey := get("app")
 	envName := get("env")
+	envKind := strings.ToLower(strings.TrimSpace(get("env_kind")))
 	serviceKey := get("service")
 	slotKey := get("slot")
 	repoFull := get("repo")
@@ -1335,8 +1336,13 @@ func (s *Server) handleArtifactUpload(c *gin.Context) {
 		}
 		prNumber = &n
 	}
-	if strings.EqualFold(envName, "preview") && strings.TrimSpace(changeSet) == "" && prNumber == nil {
-		writeError(c, http.StatusBadRequest, "pr_number or change_set required for preview")
+	useNamedPreview := strings.EqualFold(envName, "preview") && envKind == "named"
+	if useNamedPreview && (prNumber != nil || strings.TrimSpace(changeSet) != "") {
+		writeError(c, http.StatusBadRequest, "pr_number/change_set cannot be used when env_kind=named")
+		return
+	}
+	if strings.EqualFold(envName, "preview") && !useNamedPreview && strings.TrimSpace(changeSet) == "" && prNumber == nil {
+		writeError(c, http.StatusBadRequest, "pr_number or change_set required for preview (or set env_kind=named)")
 		return
 	}
 
@@ -1368,12 +1374,21 @@ func (s *Server) handleArtifactUpload(c *gin.Context) {
 
 	var envID string
 	if strings.EqualFold(envName, "preview") {
-		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, prNumber, changeSet)
-		if err != nil {
-			writeError(c, http.StatusInternalServerError, "env failed")
-			return
+		if useNamedPreview {
+			id, err := s.store.GetEnvIDByName(r.Context(), app.ID, "preview")
+			if err != nil {
+				writeError(c, http.StatusBadRequest, "unknown env (create preview env in UI first)")
+				return
+			}
+			envID = id
+		} else {
+			env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, prNumber, changeSet)
+			if err != nil {
+				writeError(c, http.StatusInternalServerError, "env failed")
+				return
+			}
+			envID = env.ID
 		}
-		envID = env.ID
 	} else {
 		id, err := s.store.GetEnvIDByName(r.Context(), app.ID, envName)
 		if err != nil {
@@ -1486,6 +1501,7 @@ func (s *Server) handleArtifactUploadBatch(c *gin.Context) {
 
 	appKey := get("app")
 	envName := get("env")
+	envKind := strings.ToLower(strings.TrimSpace(get("env_kind")))
 	serviceKey := get("service")
 	repoFull := get("repo")
 	sha := get("sha")
@@ -1510,8 +1526,13 @@ func (s *Server) handleArtifactUploadBatch(c *gin.Context) {
 		}
 		prNumber = &n
 	}
-	if strings.EqualFold(envName, "preview") && strings.TrimSpace(changeSet) == "" && prNumber == nil {
-		writeError(c, http.StatusBadRequest, "pr_number or change_set required for preview")
+	useNamedPreview := strings.EqualFold(envName, "preview") && envKind == "named"
+	if useNamedPreview && (prNumber != nil || strings.TrimSpace(changeSet) != "") {
+		writeError(c, http.StatusBadRequest, "pr_number/change_set cannot be used when env_kind=named")
+		return
+	}
+	if strings.EqualFold(envName, "preview") && !useNamedPreview && strings.TrimSpace(changeSet) == "" && prNumber == nil {
+		writeError(c, http.StatusBadRequest, "pr_number or change_set required for preview (or set env_kind=named)")
 		return
 	}
 
@@ -1535,12 +1556,21 @@ func (s *Server) handleArtifactUploadBatch(c *gin.Context) {
 	// Resolve env id
 	var envID string
 	if strings.EqualFold(envName, "preview") {
-		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, prNumber, changeSet)
-		if err != nil {
-			writeError(c, http.StatusInternalServerError, "env failed")
-			return
+		if useNamedPreview {
+			id, err := s.store.GetEnvIDByName(r.Context(), app.ID, "preview")
+			if err != nil {
+				writeError(c, http.StatusBadRequest, "unknown env (create preview env in UI first)")
+				return
+			}
+			envID = id
+		} else {
+			env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, prNumber, changeSet)
+			if err != nil {
+				writeError(c, http.StatusInternalServerError, "env failed")
+				return
+			}
+			envID = env.ID
 		}
-		envID = env.ID
 	} else {
 		id, err := s.store.GetEnvIDByName(r.Context(), app.ID, envName)
 		if err != nil {
