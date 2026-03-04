@@ -8,28 +8,29 @@ import (
 	"path/filepath"
 	"strings"
 
-	"forge-drop/internal/httpx"
+	"github.com/gin-gonic/gin"
 )
 
-func (s *Server) handleAdminMaintenance(w http.ResponseWriter, r *http.Request, rest string) {
+func (s *Server) handleAdminMaintenance(c *gin.Context, rest string) {
+	r := c.Request
 	rest = strings.TrimPrefix(rest, "/")
 	if rest == "prune" && r.Method == "POST" {
 		var req struct {
 			DryRun bool `json:"dry_run"`
 			Limit  int  `json:"limit"`
 		}
-		_ = httpx.ReadJSON(w, r, &req, 1<<20)
+		_ = readJSON(c, &req, 1<<20)
 
 		res, err := s.pruneUnreferenced(r.Context(), req.DryRun, req.Limit)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			writeError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, res)
+		c.JSON(http.StatusOK, res)
 		return
 	}
 
-	httpx.WriteError(w, http.StatusNotFound, "not found")
+	writeError(c, http.StatusNotFound, "not found")
 }
 
 func (s *Server) pruneUnreferenced(ctx context.Context, dryRun bool, limit int) (map[string]any, error) {

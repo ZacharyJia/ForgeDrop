@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"forge-drop/internal/auth"
 	"forge-drop/internal/db"
 	"forge-drop/internal/httpx"
@@ -20,73 +22,107 @@ const (
 	ctxAuthKind ctxKey = "auth_kind"
 )
 
-func (s *Server) withJSON(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
-	})
+func writeError(c *gin.Context, status int, msg string) {
+	c.JSON(status, httpx.ErrorResponse{Error: msg})
 }
 
-func (s *Server) withTimeout(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func readJSON(c *gin.Context, dst any, maxBytes int64) error {
+	return httpx.ReadJSON(c.Writer, c.Request, dst, maxBytes)
+}
+
+func noStoreGin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.Next()
+	}
+}
+
+func (s *Server) withTimeoutGin() gin.HandlerFunc {
+	return func(c *gin.Context) {
 		// Prevent any single request from hanging the whole process.
 		// Keep upload endpoints generous; keep JSON/admin endpoints tight.
 		timeout := 15 * time.Second
-		p := r.URL.Path
+		p := c.Request.URL.Path
 		if p == "/api/v1/artifacts/upload" || strings.Contains(p, "/artifacts/upload-batch") {
 			timeout = 30 * time.Minute
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
 }
 
-func (s *Server) requireSession(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := auth.GetSessionToken(r)
-		if !ok {
-			httpx.WriteError(w, http.StatusUnauthorized, "missing session")
+func requireSetupAllowedGin(store *db.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		count, err := store.UserCount(c.Request.Context())
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "db error")
+			c.Abort()
 			return
 		}
-		sess, err := s.store.GetSessionByToken(r.Context(), token)
+		if count > 0 {
+			writeError(c, http.StatusConflict, "already initialized")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+func (s *Server) requireSessionGin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, ok := auth.GetSessionToken(c.Request)
+		if !ok {
+			writeError(c, http.StatusUnauthorized, "missing session")
+			c.Abort()
+			return
+		}
+		sess, err := s.store.GetSessionByToken(c.Request.Context(), token)
 		if err != nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid session")
+			writeError(c, http.StatusUnauthorized, "invalid session")
+			c.Abort()
 			return
 		}
 		if time.Now().UTC().After(sess.ExpiresAt) {
-			_ = s.store.DeleteSession(r.Context(), sess.ID)
-			httpx.WriteError(w, http.StatusUnauthorized, "session expired")
+			_ = s.store.DeleteSession(c.Request.Context(), sess.ID)
+			writeError(c, http.StatusUnauthorized, "session expired")
+			c.Abort()
 			return
 		}
-		_ = s.store.TouchSession(r.Context(), sess.ID)
+		_ = s.store.TouchSession(c.Request.Context(), sess.ID)
 
-		ctx := context.WithValue(r.Context(), ctxUserID, sess.UserID)
+		ctx := context.WithValue(c.Request.Context(), ctxUserID, sess.UserID)
 		ctx = context.WithValue(ctx, ctxAuthKind, "session")
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
 }
 
-func (s *Server) requireBearerToken(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := httpx.BearerToken(r)
+func (s *Server) requireBearerTokenGin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, ok := httpx.BearerToken(c.Request)
 		if !ok || token == "" {
-			httpx.WriteError(w, http.StatusUnauthorized, "missing token")
+			writeError(c, http.StatusUnauthorized, "missing token")
+			c.Abort()
 			return
 		}
-		t, err := s.store.FindAPITokenByPlaintext(r.Context(), token)
+		t, err := s.store.FindAPITokenByPlaintext(c.Request.Context(), token)
 		if err != nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid token")
+			writeError(c, http.StatusUnauthorized, "invalid token")
+			c.Abort()
 			return
 		}
 		if t.RevokedAt != nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "revoked token")
+			writeError(c, http.StatusUnauthorized, "revoked token")
+			c.Abort()
 			return
 		}
-		ctx := context.WithValue(r.Context(), ctxTokenID, t.ID)
+		ctx := context.WithValue(c.Request.Context(), ctxTokenID, t.ID)
 		ctx = context.WithValue(ctx, ctxAuthKind, "token")
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
 }
 
 func tokenIDFromContext(ctx context.Context) *string {
@@ -109,30 +145,4 @@ func userIDFromContext(ctx context.Context) *string {
 		return &s
 	}
 	return nil
-}
-
-func method(m string, h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !strings.EqualFold(r.Method, m) {
-			w.Header().Set("Allow", m)
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		h(w, r)
-	}
-}
-
-func requireSetupAllowed(store *db.Store, h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		c, err := store.UserCount(r.Context())
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "db error")
-			return
-		}
-		if c > 0 {
-			httpx.WriteError(w, http.StatusConflict, "already initialized")
-			return
-		}
-		h(w, r)
-	}
 }

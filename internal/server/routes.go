@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"forge-drop/internal/auth"
 	"forge-drop/internal/db"
 	"forge-drop/internal/httpx"
@@ -227,59 +229,24 @@ func apiTokenJSON(t *db.APIToken) map[string]any {
 	return out
 }
 
-// legacyRoutes is the original net/http mux router.
-// It is kept temporarily while migrating to Gin.
-func (s *Server) legacyRoutes() http.Handler {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
-	})
-
-	// Public: setup + auth
-	mux.Handle("/api/v1/setup", s.withTimeout(http.HandlerFunc(method("POST", requireSetupAllowed(s.store, s.handleSetup)))))
-	mux.Handle("/api/v1/setup/status", s.withTimeout(http.HandlerFunc(method("GET", s.handleSetupStatus))))
-	mux.Handle("/api/v1/auth/login", s.withTimeout(http.HandlerFunc(method("POST", s.handleLogin))))
-	mux.Handle("/api/v1/auth/logout", s.withTimeout(http.HandlerFunc(method("POST", s.handleLogout))))
-	mux.Handle("/api/v1/admin/", s.withJSON(s.withTimeout(s.requireSession(http.HandlerFunc(s.handleAdmin)))))
-	mux.Handle("/api/v1/artifacts/upload", s.withJSON(s.withTimeout(s.requireBearerToken(http.HandlerFunc(s.handleArtifactUpload)))))
-	mux.Handle("/api/v1/artifacts/upload-batch", s.withJSON(s.withTimeout(s.requireBearerToken(http.HandlerFunc(s.handleArtifactUploadBatch)))))
-
-	mux.HandleFunc("/webhooks/forgejo", method("POST", s.handleForgejoWebhook))
-
-	// SPA static (embedded)
-	mux.Handle("/", s.serveSPA())
-
-	return s.withAccessLog(mux)
-}
-
-func (s *Server) withAccessLog(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		if s.opts.Dev {
-			s.logf("%s %s %s (%s)", r.Method, r.URL.Path, s.clientIP(r), time.Since(start))
-		}
-	})
-}
-
-func (s *Server) serveSPA() http.Handler {
+func (s *Server) serveSPA() gin.HandlerFunc {
 	sub, err := fs.Sub(webui.Dist, "dist")
 	if err != nil {
 		// should never happen
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "web ui missing", http.StatusInternalServerError)
-		})
+		return func(c *gin.Context) {
+			c.String(http.StatusInternalServerError, "web ui missing")
+		}
 	}
+	fsys := http.FS(sub)
+	var indexHTML []byte
+
 	// If the embed only contains a placeholder (e.g. web/dist/.keep), show a
 	// helpful message instead of a confusing 404.
 	if f, err := sub.Open("index.html"); err != nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`<!doctype html>
+		return func(c *gin.Context) {
+			c.Header("Content-Type", "text/html; charset=utf-8")
+			c.Status(http.StatusServiceUnavailable)
+			_, _ = c.Writer.Write([]byte(`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -303,44 +270,46 @@ go build ./cmd/forge-drop</code></pre>
     <pre><code>scripts/build.sh --install</code></pre>
   </body>
 </html>`))
-		})
+		}
 	} else {
+		indexHTML, _ = io.ReadAll(f)
 		_ = f.Close()
 	}
-	fileServer := http.FileServer(http.FS(sub))
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Do not serve UI for API routes.
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/webhooks/") {
-			http.NotFound(w, r)
-			return
+	serveIndex := func(c *gin.Context) {
+		if !s.opts.Dev {
+			c.Header("Cache-Control", "no-cache")
 		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+	}
 
+	return func(c *gin.Context) {
 		// Try to serve a static file first.
-		path := strings.TrimPrefix(r.URL.Path, "/")
+		path := strings.TrimPrefix(c.Request.URL.Path, "/")
 		if path == "" {
-			path = "index.html"
+			serveIndex(c)
+			return
 		}
 		if f, err := sub.Open(path); err == nil {
+			info, statErr := f.Stat()
 			_ = f.Close()
-			if !s.opts.Dev {
-				w.Header().Set("Cache-Control", "public, max-age=300")
+			// Avoid FileServer redirects for index-like requests; respond directly.
+			if path == "index.html" {
+				serveIndex(c)
+				return
 			}
-			fileServer.ServeHTTP(w, r)
-			return
+			if statErr == nil && !info.IsDir() {
+				if !s.opts.Dev {
+					c.Header("Cache-Control", "public, max-age=300")
+				}
+				c.FileFromFS(path, fsys)
+				return
+			}
 		}
 
-		// SPA fallback.
-		r2 := r.Clone(r.Context())
-		// NOTE: net/http's FileServer redirects "/index.html" -> "./" ("/"),
-		// which breaks BrowserRouter deep-links (e.g. /apps/xxx) with redirect loops.
-		// Serving the directory path lets FileServer return the index file with 200.
-		r2.URL.Path = "/"
-		if !s.opts.Dev {
-			w.Header().Set("Cache-Control", "no-cache")
-		}
-		fileServer.ServeHTTP(w, r2)
-	})
+		// SPA fallback to index.html without redirect.
+		serveIndex(c)
+	}
 }
 
 type setupRequest struct {
@@ -348,39 +317,41 @@ type setupRequest struct {
 	Password string `json:"password"`
 }
 
-func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSetup(c *gin.Context) {
+	r := c.Request
 	var req setupRequest
-	if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+	if err := readJSON(c, &req, 1<<20); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid json")
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" || req.Password == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "username/password required")
+		writeError(c, http.StatusBadRequest, "username/password required")
 		return
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "hash failed")
+		writeError(c, http.StatusInternalServerError, "hash failed")
 		return
 	}
 	u, err := s.store.CreateUser(r.Context(), req.Username, hash)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "create user failed")
+		writeError(c, http.StatusInternalServerError, "create user failed")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"user_id": u.ID})
+	c.JSON(http.StatusCreated, map[string]any{"user_id": u.ID})
 }
 
-func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
-	c, err := s.store.UserCount(r.Context())
+func (s *Server) handleSetupStatus(c *gin.Context) {
+	r := c.Request
+	count, err := s.store.UserCount(r.Context())
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "db error")
+		writeError(c, http.StatusInternalServerError, "db error")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"allowed":    c == 0,
-		"user_count": c,
+	c.JSON(http.StatusOK, map[string]any{
+		"allowed":    count == 0,
+		"user_count": count,
 	})
 }
 
@@ -389,97 +360,64 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLogin(c *gin.Context) {
+	r := c.Request
 	var req loginRequest
-	if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+	if err := readJSON(c, &req, 1<<20); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid json")
 		return
 	}
 	u, err := s.store.GetUserByUsername(r.Context(), strings.TrimSpace(req.Username))
 	if err != nil {
-		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
+		writeError(c, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if !auth.VerifyPassword(u.PasswordHash, req.Password) {
-		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
+		writeError(c, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	token, err := auth.NewToken(32)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "token failed")
+		writeError(c, http.StatusInternalServerError, "token failed")
 		return
 	}
 	_, err = s.store.CreateSession(r.Context(), u.ID, token, 7*24*time.Hour)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "session failed")
+		writeError(c, http.StatusInternalServerError, "session failed")
 		return
 	}
-	auth.SetSessionCookie(w, token, auth.CookieOptions{Secure: s.isSecureRequest(r)})
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	auth.SetSessionCookie(c.Writer, token, auth.CookieOptions{Secure: s.isSecureRequest(r)})
+	c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	auth.ClearSessionCookie(w)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+func (s *Server) handleLogout(c *gin.Context) {
+	r := c.Request
+	_ = r
+	auth.ClearSessionCookie(c.Writer)
+	c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
-	// Path is /api/v1/admin/<resource...>
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/")
-
-	switch {
-	case r.Method == "GET" && path == "me":
-		s.handleAdminMe(w, r)
-		return
-	case strings.HasPrefix(path, "settings"):
-		s.handleAdminSettings(w, r, strings.TrimPrefix(path, "settings"))
-		return
-	case strings.HasPrefix(path, "tokens"):
-		s.handleAdminTokens(w, r, strings.TrimPrefix(path, "tokens"))
-		return
-	case strings.HasPrefix(path, "repos"):
-		s.handleAdminRepos(w, r, strings.TrimPrefix(path, "repos"))
-		return
-	case strings.HasPrefix(path, "apps"):
-		s.handleAdminApps(w, r, strings.TrimPrefix(path, "apps"))
-		return
-	case strings.HasPrefix(path, "envs"):
-		s.handleAdminEnvs(w, r, strings.TrimPrefix(path, "envs"))
-		return
-	case strings.HasPrefix(path, "services"):
-		s.handleAdminServices(w, r, strings.TrimPrefix(path, "services"))
-		return
-	case strings.HasPrefix(path, "traefik"):
-		s.handleAdminTraefik(w, r, strings.TrimPrefix(path, "traefik"))
-		return
-	case strings.HasPrefix(path, "maintenance"):
-		s.handleAdminMaintenance(w, r, strings.TrimPrefix(path, "maintenance"))
-		return
-	default:
-		httpx.WriteError(w, http.StatusNotFound, "not found")
-		return
-	}
-}
-
-func (s *Server) handleAdminMe(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAdminMe(c *gin.Context) {
+	r := c.Request
 	uid := userIDFromContext(r.Context())
 	if uid == nil {
-		httpx.WriteError(w, http.StatusUnauthorized, "missing session")
+		writeError(c, http.StatusUnauthorized, "missing session")
 		return
 	}
 	u, err := s.store.GetUserByID(r.Context(), *uid)
 	if err != nil {
-		httpx.WriteError(w, http.StatusUnauthorized, "invalid session")
+		writeError(c, http.StatusUnauthorized, "invalid session")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+	c.JSON(http.StatusOK, map[string]any{
 		"id":       u.ID,
 		"username": u.Username,
 	})
 }
 
-func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, rest string) {
+func (s *Server) handleAdminSettings(c *gin.Context, rest string) {
+	r := c.Request
 	switch r.Method {
 	case "GET":
 		baseDomain, _ := s.store.GetSetting(r.Context(), "base_domain")
@@ -491,7 +429,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		regionID, _ := s.store.GetSetting(r.Context(), "traefik_alicloud_region_id")
 		wild, _ := s.store.GetSetting(r.Context(), "traefik_wildcard_enabled")
 		wildApex, _ := s.store.GetSetting(r.Context(), "traefik_wildcard_include_apex")
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		c.JSON(http.StatusOK, map[string]any{
 			"base_domain":                   baseDomain,
 			"named_host_template":           namedTpl,
 			"preview_host_template":         tpl,
@@ -509,34 +447,35 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request, res
 		return
 	case "PUT":
 		var req map[string]string
-		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		if err := readJSON(c, &req, 1<<20); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid json")
 			return
 		}
 		for k, v := range req {
 			switch k {
 			case "base_domain", "named_host_template", "preview_host_template", "docker_network", "traefik_acme_email", "traefik_acme_mode", "traefik_alicloud_region_id", "traefik_wildcard_enabled", "traefik_wildcard_include_apex":
 				if err := s.store.SetSetting(r.Context(), k, strings.TrimSpace(v)); err != nil {
-					httpx.WriteError(w, http.StatusInternalServerError, "save failed")
+					writeError(c, http.StatusInternalServerError, "save failed")
 					return
 				}
 			}
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	default:
-		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 }
 
-func (s *Server) handleAdminTokens(w http.ResponseWriter, r *http.Request, rest string) {
+func (s *Server) handleAdminTokens(c *gin.Context, rest string) {
+	r := c.Request
 	rest = strings.TrimPrefix(rest, "/")
 	switch {
 	case r.Method == "GET" && rest == "":
 		tokens, err := s.store.ListAPITokens(r.Context())
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			writeError(c, http.StatusInternalServerError, "db error")
 			return
 		}
 		var out []map[string]any
@@ -545,32 +484,32 @@ func (s *Server) handleAdminTokens(w http.ResponseWriter, r *http.Request, rest 
 			tok := t
 			out = append(out, apiTokenJSON(&tok))
 		}
-		httpx.WriteJSON(w, http.StatusOK, out)
+		c.JSON(http.StatusOK, out)
 		return
 	case r.Method == "POST" && rest == "":
 		var req struct {
 			Name string `json:"name"`
 		}
-		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		if err := readJSON(c, &req, 1<<20); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid json")
 			return
 		}
 		req.Name = strings.TrimSpace(req.Name)
 		if req.Name == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "name required")
+			writeError(c, http.StatusBadRequest, "name required")
 			return
 		}
 		plain, err := auth.NewToken(32)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "token failed")
+			writeError(c, http.StatusInternalServerError, "token failed")
 			return
 		}
 		t, err := s.store.CreateAPIToken(r.Context(), req.Name, plain)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "create failed")
+			writeError(c, http.StatusInternalServerError, "create failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusCreated, map[string]any{
+		c.JSON(http.StatusCreated, map[string]any{
 			"token":       apiTokenJSON(t),
 			"plain_token": plain,
 		})
@@ -578,41 +517,42 @@ func (s *Server) handleAdminTokens(w http.ResponseWriter, r *http.Request, rest 
 	case r.Method == "DELETE" && rest != "":
 		id := strings.TrimSuffix(rest, "/")
 		if id == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "id required")
+			writeError(c, http.StatusBadRequest, "id required")
 			return
 		}
 		if err := s.store.RevokeAPIToken(r.Context(), id); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "revoke failed")
+			writeError(c, http.StatusInternalServerError, "revoke failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	case r.Method == "POST" && strings.HasSuffix(rest, "/revoke"):
 		id := strings.TrimSuffix(rest, "/revoke")
 		id = strings.TrimSuffix(id, "/")
 		if id == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "id required")
+			writeError(c, http.StatusBadRequest, "id required")
 			return
 		}
 		if err := s.store.RevokeAPIToken(r.Context(), id); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "revoke failed")
+			writeError(c, http.StatusInternalServerError, "revoke failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	default:
-		httpx.WriteError(w, http.StatusNotFound, "not found")
+		writeError(c, http.StatusNotFound, "not found")
 		return
 	}
 }
 
-func (s *Server) handleAdminRepos(w http.ResponseWriter, r *http.Request, rest string) {
+func (s *Server) handleAdminRepos(c *gin.Context, rest string) {
+	r := c.Request
 	rest = strings.TrimPrefix(rest, "/")
 	switch {
 	case r.Method == "GET" && rest == "":
 		repos, err := s.store.ListRepos(r.Context())
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			writeError(c, http.StatusInternalServerError, "db error")
 			return
 		}
 		var out []map[string]any
@@ -621,63 +561,64 @@ func (s *Server) handleAdminRepos(w http.ResponseWriter, r *http.Request, rest s
 			r := rr
 			out = append(out, repoJSON(&r))
 		}
-		httpx.WriteJSON(w, http.StatusOK, out)
+		c.JSON(http.StatusOK, out)
 		return
 	case r.Method == "POST" && rest == "":
 		var req struct {
 			FullName      string `json:"full_name"`
 			WebhookSecret string `json:"webhook_secret"`
 		}
-		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		if err := readJSON(c, &req, 1<<20); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid json")
 			return
 		}
 		req.FullName = strings.TrimSpace(req.FullName)
 		if req.FullName == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "full_name required")
+			writeError(c, http.StatusBadRequest, "full_name required")
 			return
 		}
 		repo, err := s.store.CreateRepo(r.Context(), req.FullName, req.WebhookSecret)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "create failed")
+			writeError(c, http.StatusInternalServerError, "create failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusCreated, repoJSON(repo))
+		c.JSON(http.StatusCreated, repoJSON(repo))
 		return
 	case r.Method == "DELETE" && rest != "":
 		id := strings.TrimSuffix(rest, "/")
 		if err := s.store.DeleteRepo(r.Context(), id); err != nil {
 			if errors.Is(err, db.ErrNotFound) {
-				httpx.WriteError(w, http.StatusNotFound, "not found")
+				writeError(c, http.StatusNotFound, "not found")
 				return
 			}
-			httpx.WriteError(w, http.StatusInternalServerError, "delete failed")
+			writeError(c, http.StatusInternalServerError, "delete failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	case r.Method == "PUT" && rest != "":
 		id := rest
 		var req struct {
 			WebhookSecret string `json:"webhook_secret"`
 		}
-		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		if err := readJSON(c, &req, 1<<20); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid json")
 			return
 		}
 		if err := s.store.UpdateRepoSecret(r.Context(), id, req.WebhookSecret); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
+			writeError(c, http.StatusInternalServerError, "update failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	default:
-		httpx.WriteError(w, http.StatusNotFound, "not found")
+		writeError(c, http.StatusNotFound, "not found")
 		return
 	}
 }
 
-func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest string) {
+func (s *Server) handleAdminApps(c *gin.Context, rest string) {
+	r := c.Request
 	rest = strings.TrimPrefix(rest, "/")
 
 	// /apps
@@ -686,7 +627,7 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 		case "GET":
 			apps, err := s.store.ListApps(r.Context())
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "db error")
+				writeError(c, http.StatusInternalServerError, "db error")
 				return
 			}
 			var out []map[string]any
@@ -695,35 +636,35 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 				app := a
 				out = append(out, appJSON(&app))
 			}
-			httpx.WriteJSON(w, http.StatusOK, out)
+			c.JSON(http.StatusOK, out)
 			return
 		case "POST":
 			var req struct {
 				AppKey string `json:"app_key"`
 				Name   string `json:"name"`
 			}
-			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+			if err := readJSON(c, &req, 1<<20); err != nil {
+				writeError(c, http.StatusBadRequest, "invalid json")
 				return
 			}
 			req.AppKey = strings.TrimSpace(req.AppKey)
 			req.Name = strings.TrimSpace(req.Name)
 			if req.AppKey == "" || req.Name == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "app_key/name required")
+				writeError(c, http.StatusBadRequest, "app_key/name required")
 				return
 			}
 			app, err := s.store.CreateApp(r.Context(), req.AppKey, req.Name)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
+				writeError(c, http.StatusInternalServerError, "create failed")
 				return
 			}
 			// Make first-run smoother: create default envs.
 			_, _ = s.store.EnsureNamedEnv(r.Context(), app.ID, "prod")
 			_, _ = s.store.EnsureNamedEnv(r.Context(), app.ID, "preview")
-			httpx.WriteJSON(w, http.StatusCreated, appJSON(app))
+			c.JSON(http.StatusCreated, appJSON(app))
 			return
 		default:
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 	}
@@ -735,7 +676,7 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 		case "GET":
 			app, err := s.store.GetAppByID(r.Context(), appID)
 			if err != nil {
-				httpx.WriteError(w, http.StatusNotFound, "not found")
+				writeError(c, http.StatusNotFound, "not found")
 				return
 			}
 			services, _ := s.store.ListServicesByApp(r.Context(), appID)
@@ -750,17 +691,17 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 				env := e
 				outEnvs = append(outEnvs, envJSON(&env))
 			}
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"app": appJSON(app), "services": outSvcs, "envs": outEnvs})
+			c.JSON(http.StatusOK, map[string]any{"app": appJSON(app), "services": outSvcs, "envs": outEnvs})
 			return
 		case "DELETE":
 			if err := s.store.DeleteApp(r.Context(), appID); err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "delete failed")
+				writeError(c, http.StatusInternalServerError, "delete failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+			c.JSON(http.StatusOK, map[string]any{"ok": true})
 			return
 		default:
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 	}
@@ -768,24 +709,25 @@ func (s *Server) handleAdminApps(w http.ResponseWriter, r *http.Request, rest st
 	// /apps/{appID}/services or /apps/{appID}/envs
 	switch parts[1] {
 	case "services":
-		s.handleAdminAppServices(w, r, appID, parts[2:])
+		s.handleAdminAppServices(c, appID, parts[2:])
 		return
 	case "envs":
-		s.handleAdminAppEnvs(w, r, appID, parts[2:])
+		s.handleAdminAppEnvs(c, appID, parts[2:])
 		return
 	default:
-		httpx.WriteError(w, http.StatusNotFound, "not found")
+		writeError(c, http.StatusNotFound, "not found")
 		return
 	}
 }
 
-func (s *Server) handleAdminAppServices(w http.ResponseWriter, r *http.Request, appID string, rest []string) {
+func (s *Server) handleAdminAppServices(c *gin.Context, appID string, rest []string) {
+	r := c.Request
 	if len(rest) == 0 {
 		switch r.Method {
 		case "GET":
 			svcs, err := s.store.ListServicesByApp(r.Context(), appID)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "db error")
+				writeError(c, http.StatusInternalServerError, "db error")
 				return
 			}
 			out := make([]map[string]any, 0, len(svcs))
@@ -793,7 +735,7 @@ func (s *Server) handleAdminAppServices(w http.ResponseWriter, r *http.Request, 
 				s := svc
 				out = append(out, serviceJSON(&s))
 			}
-			httpx.WriteJSON(w, http.StatusOK, out)
+			c.JSON(http.StatusOK, out)
 			return
 		case "POST":
 			var req struct {
@@ -806,75 +748,77 @@ func (s *Server) handleAdminAppServices(w http.ResponseWriter, r *http.Request, 
 				Env           map[string]string `json:"env"`
 				ProdHost      string            `json:"prod_host"`
 			}
-			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+			if err := readJSON(c, &req, 1<<20); err != nil {
+				writeError(c, http.StatusBadRequest, "invalid json")
 				return
 			}
 			req.ServiceKey = strings.TrimSpace(req.ServiceKey)
 			req.Name = strings.TrimSpace(req.Name)
 			if req.ServiceKey == "" || req.Name == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "service_key/name required")
+				writeError(c, http.StatusBadRequest, "service_key/name required")
 				return
 			}
 			svc, err := s.store.CreateService(r.Context(), appID, req.ServiceKey, req.Name, req.Image, req.Command, req.ContainerPort, req.RunUser, req.Env, req.ProdHost)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
+				writeError(c, http.StatusInternalServerError, "create failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusCreated, serviceJSON(svc))
+			c.JSON(http.StatusCreated, serviceJSON(svc))
 			return
 		default:
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 	}
-	httpx.WriteError(w, http.StatusNotFound, "not found")
+	writeError(c, http.StatusNotFound, "not found")
 }
 
-func (s *Server) handleAdminAppEnvs(w http.ResponseWriter, r *http.Request, appID string, rest []string) {
+func (s *Server) handleAdminAppEnvs(c *gin.Context, appID string, rest []string) {
+	r := c.Request
 	if len(rest) == 0 {
 		switch r.Method {
 		case "GET":
 			envs, err := s.store.ListEnvsByApp(r.Context(), appID)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "db error")
+				writeError(c, http.StatusInternalServerError, "db error")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusOK, envs)
+			c.JSON(http.StatusOK, envs)
 			return
 		case "POST":
 			var req struct {
 				Name string `json:"name"`
 			}
-			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+			if err := readJSON(c, &req, 1<<20); err != nil {
+				writeError(c, http.StatusBadRequest, "invalid json")
 				return
 			}
 			req.Name = strings.TrimSpace(req.Name)
 			if req.Name == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "name required")
+				writeError(c, http.StatusBadRequest, "name required")
 				return
 			}
 			env, err := s.store.CreateNamedEnv(r.Context(), appID, req.Name)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
+				writeError(c, http.StatusInternalServerError, "create failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusCreated, envJSON(env))
+			c.JSON(http.StatusCreated, envJSON(env))
 			return
 		default:
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 	}
-	httpx.WriteError(w, http.StatusNotFound, "not found")
+	writeError(c, http.StatusNotFound, "not found")
 }
 
-func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, rest string) {
+func (s *Server) handleAdminServices(c *gin.Context, rest string) {
+	r := c.Request
 	rest = strings.TrimPrefix(rest, "/")
 	parts := strings.Split(rest, "/")
 	if len(parts) == 0 || parts[0] == "" {
-		httpx.WriteError(w, http.StatusNotFound, "not found")
+		writeError(c, http.StatusNotFound, "not found")
 		return
 	}
 	serviceID := parts[0]
@@ -883,7 +827,7 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 		case "GET":
 			svc, err := s.store.GetServiceByID(r.Context(), serviceID)
 			if err != nil {
-				httpx.WriteError(w, http.StatusNotFound, "not found")
+				writeError(c, http.StatusNotFound, "not found")
 				return
 			}
 			slots, _ := s.store.ListSlotsByService(r.Context(), serviceID)
@@ -891,7 +835,7 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 			for _, sl := range slots {
 				outSlots = append(outSlots, slotJSON(sl))
 			}
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"service": serviceJSON(svc), "slots": outSlots})
+			c.JSON(http.StatusOK, map[string]any{"service": serviceJSON(svc), "slots": outSlots})
 			return
 		case "PUT":
 			var req struct {
@@ -904,13 +848,13 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 				DeployStrategy   string            `json:"deploy_strategy"`
 				Enabled          bool              `json:"enabled"`
 			}
-			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+			if err := readJSON(c, &req, 1<<20); err != nil {
+				writeError(c, http.StatusBadRequest, "invalid json")
 				return
 			}
 			svc, err := s.store.GetServiceByID(r.Context(), serviceID)
 			if err != nil {
-				httpx.WriteError(w, http.StatusNotFound, "not found")
+				writeError(c, http.StatusNotFound, "not found")
 				return
 			}
 			patch := *svc
@@ -935,82 +879,84 @@ func (s *Server) handleAdminServices(w http.ResponseWriter, r *http.Request, res
 			patch.Enabled = req.Enabled
 			updated, err := s.store.UpdateService(r.Context(), serviceID, patch)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "update failed")
+				writeError(c, http.StatusInternalServerError, "update failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusOK, serviceJSON(updated))
+			c.JSON(http.StatusOK, serviceJSON(updated))
 			return
 		case "DELETE":
 			if err := s.store.DeleteService(r.Context(), serviceID); err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "delete failed")
+				writeError(c, http.StatusInternalServerError, "delete failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+			c.JSON(http.StatusOK, map[string]any{"ok": true})
 			return
 		default:
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 	}
 
 	if len(parts) >= 2 && parts[1] == "slots" {
-		s.handleAdminSlots(w, r, serviceID, parts[2:])
+		s.handleAdminSlots(c, serviceID, parts[2:])
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "artifacts" {
-		s.handleAdminServiceArtifacts(w, r, serviceID, parts[2:])
+		s.handleAdminServiceArtifacts(c, serviceID, parts[2:])
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "status" {
-		s.handleServiceStatus(w, r, serviceID)
+		s.handleServiceStatus(c, serviceID)
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "logs" {
-		s.handleServiceLogs(w, r, serviceID)
+		s.handleServiceLogs(c, serviceID)
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "deploy" {
-		s.handleServiceDeploy(w, r, serviceID)
+		s.handleServiceDeploy(c, serviceID)
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "redeploy" {
-		s.handleServiceRedeploy(w, r, serviceID)
+		s.handleServiceRedeploy(c, serviceID)
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "compose-template-example" && r.Method == "GET" {
-		s.handleComposeTemplateExample(w, r)
+		s.handleComposeTemplateExample(c)
 		return
 	}
-	httpx.WriteError(w, http.StatusNotFound, "not found")
+	writeError(c, http.StatusNotFound, "not found")
 }
 
-func (s *Server) handleAdminServiceArtifacts(w http.ResponseWriter, r *http.Request, serviceID string, rest []string) {
+func (s *Server) handleAdminServiceArtifacts(c *gin.Context, serviceID string, rest []string) {
+	r := c.Request
 	// /services/{serviceID}/artifacts/upload-batch
 	if len(rest) == 1 && rest[0] == "upload-batch" {
 		if r.Method != "POST" {
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		s.handleAdminServiceArtifactUploadBatch(w, r, serviceID)
+		s.handleAdminServiceArtifactUploadBatch(c, serviceID)
 		return
 	}
-	httpx.WriteError(w, http.StatusNotFound, "not found")
+	writeError(c, http.StatusNotFound, "not found")
 }
 
-func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, serviceID string, rest []string) {
+func (s *Server) handleAdminSlots(c *gin.Context, serviceID string, rest []string) {
+	r := c.Request
 	if len(rest) == 0 {
 		switch r.Method {
 		case "GET":
 			slots, err := s.store.ListSlotsByService(r.Context(), serviceID)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "db error")
+				writeError(c, http.StatusInternalServerError, "db error")
 				return
 			}
 			out := make([]map[string]any, 0, len(slots))
 			for _, sl := range slots {
 				out = append(out, slotJSON(sl))
 			}
-			httpx.WriteJSON(w, http.StatusOK, out)
+			c.JSON(http.StatusOK, out)
 			return
 		case "POST":
 			var req struct {
@@ -1021,26 +967,26 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 				MountType     string   `json:"mount_type"`
 				ContainerPath string   `json:"container_path"`
 			}
-			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+			if err := readJSON(c, &req, 1<<20); err != nil {
+				writeError(c, http.StatusBadRequest, "invalid json")
 				return
 			}
 			req.SlotKey = strings.TrimSpace(req.SlotKey)
 			req.Name = strings.TrimSpace(req.Name)
 			repoIDs := normalizeRepoIDsInput(req.RepoID, req.RepoIDs)
 			if req.SlotKey == "" || req.Name == "" || len(repoIDs) == 0 || req.ContainerPath == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "slot_key/name/repo_ids/container_path required")
+				writeError(c, http.StatusBadRequest, "slot_key/name/repo_ids/container_path required")
 				return
 			}
 			slot, err := s.store.CreateSlot(r.Context(), serviceID, req.SlotKey, req.Name, req.ContainerPath, req.MountType, repoIDs)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
+				writeError(c, http.StatusInternalServerError, "create failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusCreated, slotJSON(*slot))
+			c.JSON(http.StatusCreated, slotJSON(*slot))
 			return
 		default:
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 	}
@@ -1056,13 +1002,13 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 			MountType     string   `json:"mount_type"`
 			ContainerPath string   `json:"container_path"`
 		}
-		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		if err := readJSON(c, &req, 1<<20); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid json")
 			return
 		}
 		slot, err := s.store.GetSlotByID(r.Context(), slotID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusNotFound, "not found")
+			writeError(c, http.StatusNotFound, "not found")
 			return
 		}
 		patch := *slot
@@ -1082,36 +1028,37 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 		replaceRepoIDs := req.RepoID != "" || req.RepoIDs != nil
 		if replaceRepoIDs {
 			if len(repoIDs) == 0 {
-				httpx.WriteError(w, http.StatusBadRequest, "repo_ids required")
+				writeError(c, http.StatusBadRequest, "repo_ids required")
 				return
 			}
 			patch.RepoIDs = repoIDs
 		}
 		updated, err := s.store.UpdateSlot(r.Context(), slotID, patch, replaceRepoIDs)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
+			writeError(c, http.StatusInternalServerError, "update failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, slotJSON(*updated))
+		c.JSON(http.StatusOK, slotJSON(*updated))
 		return
 	case "DELETE":
 		if err := s.store.DeleteSlot(r.Context(), slotID); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "delete failed")
+			writeError(c, http.StatusInternalServerError, "delete failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	default:
-		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 }
 
-func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest string) {
+func (s *Server) handleAdminEnvs(c *gin.Context, rest string) {
+	r := c.Request
 	rest = strings.TrimPrefix(rest, "/")
 	parts := strings.Split(rest, "/")
 	if len(parts) == 0 || parts[0] == "" {
-		httpx.WriteError(w, http.StatusNotFound, "not found")
+		writeError(c, http.StatusNotFound, "not found")
 		return
 	}
 	envID := parts[0]
@@ -1121,27 +1068,27 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 			// continue below
 		case "DELETE":
 			if _, err := s.store.GetEnvByID(r.Context(), envID); err != nil {
-				httpx.WriteError(w, http.StatusNotFound, "not found")
+				writeError(c, http.StatusNotFound, "not found")
 				return
 			}
 			if err := s.deployer.CleanupEnv(r.Context(), envID); err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "cleanup failed: "+err.Error())
+				writeError(c, http.StatusInternalServerError, "cleanup failed: "+err.Error())
 				return
 			}
 			if err := s.store.SoftDeleteEnv(r.Context(), envID); err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "delete failed")
+				writeError(c, http.StatusInternalServerError, "delete failed")
 				return
 			}
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+			c.JSON(http.StatusOK, map[string]any{"ok": true})
 			return
 		default:
-			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 
 		env, err := s.store.GetEnvByID(r.Context(), envID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusNotFound, "not found")
+			writeError(c, http.StatusNotFound, "not found")
 			return
 		}
 		app, _ := s.store.GetAppByID(r.Context(), env.AppID)
@@ -1159,7 +1106,7 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 			}
 			slotsByService[svc.ID] = outSlots
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		c.JSON(http.StatusOK, map[string]any{
 			"env":                 envJSON(env),
 			"app":                 appJSON(app),
 			"services":            outSvcs,
@@ -1173,7 +1120,7 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 		if r.ContentLength > 0 {
 			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 			if err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "read failed")
+				writeError(c, http.StatusBadRequest, "read failed")
 				return
 			}
 			defer httpx.DrainAndClose(r.Body)
@@ -1182,7 +1129,7 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 					Strategy string `json:"strategy"`
 				}
 				if err := json.Unmarshal(body, &req); err != nil {
-					httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+					writeError(c, http.StatusBadRequest, "invalid json")
 					return
 				}
 				explicit = strings.TrimSpace(req.Strategy)
@@ -1193,127 +1140,128 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 			strategy = parseDeployStrategy(strategy)
 		}
 		if err := s.deployer.DeployEnv(r.Context(), envID, strategy); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
+			writeError(c, http.StatusInternalServerError, "apply failed: "+err.Error())
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	}
 	if len(parts) >= 4 && parts[1] == "services" && parts[3] == "slot-artifacts" && r.Method == "GET" {
 		serviceID := parts[2]
 		env, err := s.store.GetEnvByID(r.Context(), envID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusNotFound, "unknown env")
+			writeError(c, http.StatusNotFound, "unknown env")
 			return
 		}
 		svc, err := s.store.GetServiceByID(r.Context(), serviceID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusNotFound, "unknown service")
+			writeError(c, http.StatusNotFound, "unknown service")
 			return
 		}
 		if env.AppID != svc.AppID {
-			httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
+			writeError(c, http.StatusBadRequest, "env does not belong to this service's app")
 			return
 		}
 		m, cur, err := s.store.GetEffectiveSlotArtifacts(r.Context(), envID, serviceID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			writeError(c, http.StatusInternalServerError, "db error")
 			return
 		}
 		out := make(map[string]any, len(m))
 		for k, a := range m {
 			out[k] = artifactJSON(a)
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"snapshot_id": cur, "artifacts_by_slot_key": out})
+		c.JSON(http.StatusOK, map[string]any{"snapshot_id": cur, "artifacts_by_slot_key": out})
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "sync-preview-snapshot" && r.Method == "POST" {
 		env, err := s.store.GetEnvByID(r.Context(), envID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusNotFound, "unknown env")
+			writeError(c, http.StatusNotFound, "unknown env")
 			return
 		}
 		if env.Kind != "preview" || env.RepoID == nil || (env.PRNumber == nil && env.ChangeSet == nil) {
-			httpx.WriteError(w, http.StatusBadRequest, "only repo-scoped preview env can sync from preview template")
+			writeError(c, http.StatusBadRequest, "only repo-scoped preview env can sync from preview template")
 			return
 		}
 		tplEnvID, err := s.store.GetEnvIDByName(r.Context(), env.AppID, "preview")
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
-				httpx.WriteError(w, http.StatusBadRequest, "preview template env not found")
+				writeError(c, http.StatusBadRequest, "preview template env not found")
 				return
 			}
-			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			writeError(c, http.StatusInternalServerError, "db error")
 			return
 		}
 		tplSnap, err := s.store.GetEnvCurrentSnapshotID(r.Context(), tplEnvID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			writeError(c, http.StatusInternalServerError, "db error")
 			return
 		}
 		if tplSnap == nil {
-			httpx.WriteError(w, http.StatusBadRequest, "preview template has no snapshot yet")
+			writeError(c, http.StatusBadRequest, "preview template has no snapshot yet")
 			return
 		}
 		snapID := strings.TrimSpace(*tplSnap)
 		if snapID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "preview template has no snapshot yet")
+			writeError(c, http.StatusBadRequest, "preview template has no snapshot yet")
 			return
 		}
 		if err := s.store.SetEnvCurrentSnapshot(r.Context(), envID, snapID); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
+			writeError(c, http.StatusInternalServerError, "update failed")
 			return
 		}
 		if err := s.deployer.DeployEnv(r.Context(), envID, ""); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
+			writeError(c, http.StatusInternalServerError, "apply failed: "+err.Error())
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "snapshot_id": snapID})
+		c.JSON(http.StatusOK, map[string]any{"ok": true, "snapshot_id": snapID})
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "snapshots" && r.Method == "GET" {
 		snaps, err := s.store.ListSnapshots(r.Context(), envID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "db error")
+			writeError(c, http.StatusInternalServerError, "db error")
 			return
 		}
 		out := make([]map[string]any, 0, len(snaps))
 		for _, sn := range snaps {
 			out = append(out, snapshotJSON(sn))
 		}
-		httpx.WriteJSON(w, http.StatusOK, out)
+		c.JSON(http.StatusOK, out)
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "rollback" && r.Method == "POST" {
 		var req struct {
 			SnapshotID string `json:"snapshot_id"`
 		}
-		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		if err := readJSON(c, &req, 1<<20); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid json")
 			return
 		}
 		req.SnapshotID = strings.TrimSpace(req.SnapshotID)
 		if req.SnapshotID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "snapshot_id required")
+			writeError(c, http.StatusBadRequest, "snapshot_id required")
 			return
 		}
 		if err := s.store.SetEnvCurrentSnapshot(r.Context(), envID, req.SnapshotID); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
+			writeError(c, http.StatusInternalServerError, "update failed")
 			return
 		}
 		if err := s.deployer.DeployEnv(r.Context(), envID, ""); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "apply failed: "+err.Error())
+			writeError(c, http.StatusInternalServerError, "apply failed: "+err.Error())
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	httpx.WriteError(w, http.StatusNotFound, "not found")
+	writeError(c, http.StatusNotFound, "not found")
 }
 
-func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleArtifactUpload(c *gin.Context) {
+	r := c.Request
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid multipart")
+		writeError(c, http.StatusBadRequest, "invalid multipart")
 		return
 	}
 	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
@@ -1333,7 +1281,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if appKey == "" || envName == "" || serviceKey == "" || slotKey == "" || repoFull == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "app/env/service/slot/repo required")
+		writeError(c, http.StatusBadRequest, "app/env/service/slot/repo required")
 		return
 	}
 
@@ -1341,39 +1289,39 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(prStr) != "" {
 		n, err := strconv.Atoi(prStr)
 		if err != nil || n <= 0 {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid pr_number")
+			writeError(c, http.StatusBadRequest, "invalid pr_number")
 			return
 		}
 		prNumber = &n
 	}
 	if strings.EqualFold(envName, "preview") && strings.TrimSpace(changeSet) == "" && prNumber == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "pr_number or change_set required for preview")
+		writeError(c, http.StatusBadRequest, "pr_number or change_set required for preview")
 		return
 	}
 
 	app, err := s.store.GetAppByKey(r.Context(), appKey)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown app")
+		writeError(c, http.StatusBadRequest, "unknown app")
 		return
 	}
 	repo, err := s.store.GetRepoByFullName(r.Context(), repoFull)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown repo (create it in UI first)")
+		writeError(c, http.StatusBadRequest, "unknown repo (create it in UI first)")
 		return
 	}
 	svc, err := s.store.GetServiceByKey(r.Context(), app.ID, serviceKey)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown service")
+		writeError(c, http.StatusBadRequest, "unknown service")
 		return
 	}
 	deployStrategy := resolveDeployStrategy(deployStrategyRaw, svc.DeployStrategy)
 	slot, err := s.store.GetSlotByKey(r.Context(), svc.ID, slotKey)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown slot")
+		writeError(c, http.StatusBadRequest, "unknown slot")
 		return
 	}
 	if !slot.AllowsRepo(repo.ID) {
-		httpx.WriteError(w, http.StatusForbidden, "repo not allowed for this slot")
+		writeError(c, http.StatusForbidden, "repo not allowed for this slot")
 		return
 	}
 
@@ -1381,14 +1329,14 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(envName, "preview") {
 		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, prNumber, changeSet)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "env failed")
+			writeError(c, http.StatusInternalServerError, "env failed")
 			return
 		}
 		envID = env.ID
 	} else {
 		id, err := s.store.GetEnvIDByName(r.Context(), app.ID, envName)
 		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "unknown env (create it in UI first)")
+			writeError(c, http.StatusBadRequest, "unknown env (create it in UI first)")
 			return
 		}
 		envID = id
@@ -1396,31 +1344,31 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 
 	file, header, err := r.FormFile("artifact")
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "missing artifact file")
+		writeError(c, http.StatusBadRequest, "missing artifact file")
 		return
 	}
 	defer httpx.DrainAndClose(file)
 
 	artifactID, err := ids.New()
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "id failed")
+		writeError(c, http.StatusInternalServerError, "id failed")
 		return
 	}
 	artifactDir := filepath.Join(s.opts.DataDir, "artifacts", artifactID)
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "store failed")
+		writeError(c, http.StatusInternalServerError, "store failed")
 		return
 	}
 	filename := sanitizeFilename(header.Filename)
 	if err := validateUploadByMountType(*slot, filename); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		writeError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	dstPath := filepath.Join(artifactDir, filename)
 
 	sha256Hex, sizeBytes, err := writeFileAndSHA256(dstPath, file)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+		writeError(c, http.StatusInternalServerError, "write failed")
 		return
 	}
 
@@ -1451,21 +1399,21 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		Note:       note,
 	})
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "db write failed: "+err.Error())
+		writeError(c, http.StatusInternalServerError, "db write failed: "+err.Error())
 		return
 	}
 
 	deployed := false
 	if autoDeploy {
 		if err := s.deployer.DeployService(r.Context(), envID, svc.ID, deployStrategy); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+			writeError(c, http.StatusInternalServerError, "deploy failed: "+err.Error())
 			return
 		}
 		deployed = true
 	}
 
 	url, _ := s.deployer.ServiceURL(r.Context(), envID, svc.ID)
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
+	c.JSON(http.StatusCreated, map[string]any{
 		"artifact_id":    res.ArtifactID,
 		"snapshot_id":    res.SnapshotID,
 		"env_id":         envID,
@@ -1485,9 +1433,10 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleArtifactUploadBatch(c *gin.Context) {
+	r := c.Request
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid multipart")
+		writeError(c, http.StatusBadRequest, "invalid multipart")
 		return
 	}
 	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
@@ -1507,7 +1456,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	}
 
 	if appKey == "" || envName == "" || serviceKey == "" || repoFull == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "app/env/service/repo required")
+		writeError(c, http.StatusBadRequest, "app/env/service/repo required")
 		return
 	}
 
@@ -1515,29 +1464,29 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	if strings.TrimSpace(prStr) != "" {
 		n, err := strconv.Atoi(prStr)
 		if err != nil || n <= 0 {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid pr_number")
+			writeError(c, http.StatusBadRequest, "invalid pr_number")
 			return
 		}
 		prNumber = &n
 	}
 	if strings.EqualFold(envName, "preview") && strings.TrimSpace(changeSet) == "" && prNumber == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "pr_number or change_set required for preview")
+		writeError(c, http.StatusBadRequest, "pr_number or change_set required for preview")
 		return
 	}
 
 	app, err := s.store.GetAppByKey(r.Context(), appKey)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown app")
+		writeError(c, http.StatusBadRequest, "unknown app")
 		return
 	}
 	repo, err := s.store.GetRepoByFullName(r.Context(), repoFull)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown repo (create it in UI first)")
+		writeError(c, http.StatusBadRequest, "unknown repo (create it in UI first)")
 		return
 	}
 	svc, err := s.store.GetServiceByKey(r.Context(), app.ID, serviceKey)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown service")
+		writeError(c, http.StatusBadRequest, "unknown service")
 		return
 	}
 	deployStrategy := resolveDeployStrategy(deployStrategyRaw, svc.DeployStrategy)
@@ -1547,14 +1496,14 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	if strings.EqualFold(envName, "preview") {
 		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, prNumber, changeSet)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "env failed")
+			writeError(c, http.StatusInternalServerError, "env failed")
 			return
 		}
 		envID = env.ID
 	} else {
 		id, err := s.store.GetEnvIDByName(r.Context(), app.ID, envName)
 		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "unknown env (create it in UI first)")
+			writeError(c, http.StatusBadRequest, "unknown env (create it in UI first)")
 			return
 		}
 		envID = id
@@ -1562,7 +1511,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 
 	slots, err := s.store.ListSlotsByService(r.Context(), svc.ID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "db error")
+		writeError(c, http.StatusInternalServerError, "db error")
 		return
 	}
 	slotByKey := make(map[string]db.Slot, len(slots))
@@ -1580,11 +1529,11 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 		slotKey := strings.TrimPrefix(field, "file_")
 		sl, ok := slotByKey[slotKey]
 		if !ok {
-			httpx.WriteError(w, http.StatusBadRequest, "unknown slot in upload: "+slotKey)
+			writeError(c, http.StatusBadRequest, "unknown slot in upload: "+slotKey)
 			return
 		}
 		if !sl.AllowsRepo(repo.ID) {
-			httpx.WriteError(w, http.StatusForbidden, "repo not allowed for slot: "+slotKey)
+			writeError(c, http.StatusForbidden, "repo not allowed for slot: "+slotKey)
 			return
 		}
 		if len(fhs) == 0 {
@@ -1593,30 +1542,30 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 		h := fhs[0]
 		file, err := h.Open()
 		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "open file failed")
+			writeError(c, http.StatusBadRequest, "open file failed")
 			return
 		}
 		defer httpx.DrainAndClose(file)
 
 		artifactID, err := ids.New()
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "id failed")
+			writeError(c, http.StatusInternalServerError, "id failed")
 			return
 		}
 		artifactDir := filepath.Join(s.opts.DataDir, "artifacts", artifactID)
 		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "store failed")
+			writeError(c, http.StatusInternalServerError, "store failed")
 			return
 		}
 		filename := sanitizeFilename(h.Filename)
 		if err := validateUploadByMountType(sl, filename); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			writeError(c, http.StatusBadRequest, err.Error())
 			return
 		}
 		dstPath := filepath.Join(artifactDir, filename)
 		sha256Hex, sizeBytes, err := writeFileAndSHA256(dstPath, file)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+			writeError(c, http.StatusInternalServerError, "write failed")
 			return
 		}
 
@@ -1636,7 +1585,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	}
 
 	if len(entries) == 0 {
-		httpx.WriteError(w, http.StatusBadRequest, "no files uploaded (expected fields like file_<slotKey>)")
+		writeError(c, http.StatusBadRequest, "no files uploaded (expected fields like file_<slotKey>)")
 		return
 	}
 
@@ -1658,21 +1607,21 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 		Note:      note,
 	})
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "db write failed: "+err.Error())
+		writeError(c, http.StatusInternalServerError, "db write failed: "+err.Error())
 		return
 	}
 
 	deployed := false
 	if autoDeploy {
 		if err := s.deployer.DeployService(r.Context(), envID, svc.ID, deployStrategy); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+			writeError(c, http.StatusInternalServerError, "deploy failed: "+err.Error())
 			return
 		}
 		deployed = true
 	}
 
 	url, _ := s.deployer.ServiceURL(r.Context(), envID, svc.ID)
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
+	c.JSON(http.StatusCreated, map[string]any{
 		"ok":                   true,
 		"env_id":               envID,
 		"service_id":           svc.ID,
@@ -1745,14 +1694,15 @@ func validateUploadByMountType(slot db.Slot, filename string) error {
 	return errors.New("dir mount only accepts archive files (.zip/.tar/.tar.gz/.tgz)")
 }
 
-func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r *http.Request, serviceID string) {
+func (s *Server) handleAdminServiceArtifactUploadBatch(c *gin.Context, serviceID string) {
+	r := c.Request
 	// Admin-only (session) batch upload for a single service.
 	// Form fields:
 	// - env_id: target env id (named env)
 	// - sha/ref (optional)
 	// - file_<slotID>: file for a given slot
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid multipart")
+		writeError(c, http.StatusBadRequest, "invalid multipart")
 		return
 	}
 	autoDeploy := parseAutoDeployFlag(strings.TrimSpace(r.FormValue("deploy")))
@@ -1761,39 +1711,39 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 	sha := strings.TrimSpace(r.FormValue("sha"))
 	ref := strings.TrimSpace(r.FormValue("ref"))
 	if envID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
+		writeError(c, http.StatusBadRequest, "env_id required")
 		return
 	}
 
 	uid := userIDFromContext(r.Context())
 	if uid == nil {
-		httpx.WriteError(w, http.StatusUnauthorized, "missing session")
+		writeError(c, http.StatusUnauthorized, "missing session")
 		return
 	}
 
 	svc, err := s.store.GetServiceByID(r.Context(), serviceID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusNotFound, "unknown service")
+		writeError(c, http.StatusNotFound, "unknown service")
 		return
 	}
 	env, err := s.store.GetEnvByID(r.Context(), envID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown env")
+		writeError(c, http.StatusBadRequest, "unknown env")
 		return
 	}
 	if env.AppID != svc.AppID {
-		httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
+		writeError(c, http.StatusBadRequest, "env does not belong to this service's app")
 		return
 	}
 	if env.Kind != "named" {
-		httpx.WriteError(w, http.StatusBadRequest, "only named env supported for manual upload")
+		writeError(c, http.StatusBadRequest, "only named env supported for manual upload")
 		return
 	}
 	deployStrategy := resolveDeployStrategy(deployStrategyRaw, svc.DeployStrategy)
 
 	slots, err := s.store.ListSlotsByService(r.Context(), serviceID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "db error")
+		writeError(c, http.StatusInternalServerError, "db error")
 		return
 	}
 	slotByID := make(map[string]db.Slot, len(slots))
@@ -1810,7 +1760,7 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		slotID := strings.TrimPrefix(field, "file_")
 		sl, ok := slotByID[slotID]
 		if !ok {
-			httpx.WriteError(w, http.StatusBadRequest, "unknown slot_id in upload: "+slotID)
+			writeError(c, http.StatusBadRequest, "unknown slot_id in upload: "+slotID)
 			return
 		}
 		if len(fhs) == 0 {
@@ -1819,35 +1769,35 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		h := fhs[0]
 		file, err := h.Open()
 		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "open file failed")
+			writeError(c, http.StatusBadRequest, "open file failed")
 			return
 		}
 		defer httpx.DrainAndClose(file)
 
 		artifactID, err := ids.New()
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "id failed")
+			writeError(c, http.StatusInternalServerError, "id failed")
 			return
 		}
 		artifactDir := filepath.Join(s.opts.DataDir, "artifacts", artifactID)
 		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "store failed")
+			writeError(c, http.StatusInternalServerError, "store failed")
 			return
 		}
 		filename := sanitizeFilename(h.Filename)
 		if err := validateUploadByMountType(sl, filename); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			writeError(c, http.StatusBadRequest, err.Error())
 			return
 		}
 		dstPath := filepath.Join(artifactDir, filename)
 		sha256Hex, sizeBytes, err := writeFileAndSHA256(dstPath, file)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+			writeError(c, http.StatusInternalServerError, "write failed")
 			return
 		}
 		primaryRepoID := sl.PrimaryRepoID()
 		if primaryRepoID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "slot has no repo binding: "+sl.SlotKey)
+			writeError(c, http.StatusBadRequest, "slot has no repo binding: "+sl.SlotKey)
 			return
 		}
 
@@ -1866,7 +1816,7 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 	}
 
 	if len(entries) == 0 {
-		httpx.WriteError(w, http.StatusBadRequest, "no files uploaded")
+		writeError(c, http.StatusBadRequest, "no files uploaded")
 		return
 	}
 
@@ -1885,21 +1835,21 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 		Note:      note,
 	})
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "db write failed: "+err.Error())
+		writeError(c, http.StatusInternalServerError, "db write failed: "+err.Error())
 		return
 	}
 
 	deployed := false
 	if autoDeploy {
 		if err := s.deployer.DeployService(r.Context(), env.ID, svc.ID, deployStrategy); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+			writeError(c, http.StatusInternalServerError, "deploy failed: "+err.Error())
 			return
 		}
 		deployed = true
 	}
 
 	url, _ := s.deployer.ServiceURL(r.Context(), env.ID, svc.ID)
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
+	c.JSON(http.StatusCreated, map[string]any{
 		"ok":             true,
 		"env_id":         env.ID,
 		"service_id":     svc.ID,
@@ -1911,28 +1861,30 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 	})
 }
 
-func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request, serviceID string) {
+func (s *Server) handleServiceStatus(c *gin.Context, serviceID string) {
+	r := c.Request
 	if r.Method != "GET" {
-		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	envID := strings.TrimSpace(r.URL.Query().Get("env_id"))
 	st, err := s.deployer.ServiceStatus(r.Context(), envID, serviceID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "status failed: "+err.Error())
+		writeError(c, http.StatusInternalServerError, "status failed: "+err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, st)
+	c.JSON(http.StatusOK, st)
 }
 
-func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request, serviceID string) {
+func (s *Server) handleServiceLogs(c *gin.Context, serviceID string) {
+	r := c.Request
 	if r.Method != "GET" {
-		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	envID := strings.TrimSpace(r.URL.Query().Get("env_id"))
 	if envID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
+		writeError(c, http.StatusBadRequest, "env_id required")
 		return
 	}
 
@@ -1949,79 +1901,81 @@ func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request, servi
 
 	logs, err := s.deployer.ServiceLogs(r.Context(), envID, serviceID, tail)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "logs failed: "+err.Error())
+		writeError(c, http.StatusInternalServerError, "logs failed: "+err.Error())
 		return
 	}
 	// Keep JSON to match the SPA fetch client.
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"env_id": envID, "service_id": serviceID, "tail": tail, "logs": logs})
+	c.JSON(http.StatusOK, map[string]any{"env_id": envID, "service_id": serviceID, "tail": tail, "logs": logs})
 }
 
-func (s *Server) handleServiceDeploy(w http.ResponseWriter, r *http.Request, serviceID string) {
+func (s *Server) handleServiceDeploy(c *gin.Context, serviceID string) {
+	r := c.Request
 	if r.Method != "POST" {
-		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req struct {
 		EnvID    string `json:"env_id"`
 		Strategy string `json:"strategy"`
 	}
-	if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+	if err := readJSON(c, &req, 1<<20); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid json")
 		return
 	}
 	req.EnvID = strings.TrimSpace(req.EnvID)
 	req.Strategy = strings.TrimSpace(req.Strategy)
 	if req.EnvID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
+		writeError(c, http.StatusBadRequest, "env_id required")
 		return
 	}
 
 	svc, err := s.store.GetServiceByID(r.Context(), serviceID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusNotFound, "unknown service")
+		writeError(c, http.StatusNotFound, "unknown service")
 		return
 	}
 	env, err := s.store.GetEnvByID(r.Context(), req.EnvID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown env")
+		writeError(c, http.StatusBadRequest, "unknown env")
 		return
 	}
 	if env.AppID != svc.AppID {
-		httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
+		writeError(c, http.StatusBadRequest, "env does not belong to this service's app")
 		return
 	}
 	strategy := resolveDeployStrategy(req.Strategy, svc.DeployStrategy)
 
 	if err := s.deployer.DeployService(r.Context(), req.EnvID, serviceID, strategy); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "deploy failed: "+err.Error())
+		writeError(c, http.StatusInternalServerError, "deploy failed: "+err.Error())
 		return
 	}
 
 	url, _ := s.deployer.ServiceURL(r.Context(), req.EnvID, serviceID)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "env_id": req.EnvID, "service_id": serviceID, "service_url": url})
+	c.JSON(http.StatusOK, map[string]any{"ok": true, "env_id": req.EnvID, "service_id": serviceID, "service_url": url})
 }
 
-func (s *Server) handleServiceRedeploy(w http.ResponseWriter, r *http.Request, serviceID string) {
+func (s *Server) handleServiceRedeploy(c *gin.Context, serviceID string) {
+	r := c.Request
 	if r.Method != "POST" {
-		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req struct {
 		EnvID string `json:"env_id"`
 	}
-	if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+	if err := readJSON(c, &req, 1<<20); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid json")
 		return
 	}
 	if req.EnvID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "env_id required")
+		writeError(c, http.StatusBadRequest, "env_id required")
 		return
 	}
 	if err := s.deployer.DeployService(r.Context(), req.EnvID, serviceID, "recreate"); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "redeploy failed: "+err.Error())
+		writeError(c, http.StatusInternalServerError, "redeploy failed: "+err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
 type forgejoWebhook struct {
@@ -2035,54 +1989,55 @@ type forgejoWebhook struct {
 	} `json:"pull_request"`
 }
 
-func (s *Server) handleForgejoWebhook(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleForgejoWebhook(c *gin.Context) {
+	r := c.Request
 	event := r.Header.Get("X-Forgejo-Event")
 	if event == "" {
 		event = r.Header.Get("X-Gitea-Event")
 	}
 	if event != "pull_request" {
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "ignored": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true, "ignored": true})
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 5<<20))
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "read failed")
+		writeError(c, http.StatusBadRequest, "read failed")
 		return
 	}
 	defer httpx.DrainAndClose(r.Body)
 
 	var payload forgejoWebhook
 	if err := json.Unmarshal(body, &payload); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		writeError(c, http.StatusBadRequest, "invalid json")
 		return
 	}
 	if payload.Action != "closed" {
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "ignored": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true, "ignored": true})
 		return
 	}
 
 	repo, err := s.store.GetRepoByFullName(r.Context(), payload.Repo.FullName)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "unknown repo")
+		writeError(c, http.StatusBadRequest, "unknown repo")
 		return
 	}
 
 	if err := verifyForgejoSignature(repo.WebhookSecret, body, r.Header); err != nil {
-		httpx.WriteError(w, http.StatusUnauthorized, "invalid signature")
+		writeError(c, http.StatusUnauthorized, "invalid signature")
 		return
 	}
 
 	envs, err := s.store.FindEnvsForRepoPR(r.Context(), repo.ID, payload.PullRequest.Number)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "db error")
+		writeError(c, http.StatusInternalServerError, "db error")
 		return
 	}
 	for _, e := range envs {
 		_ = s.deployer.CleanupEnv(r.Context(), e.ID)
 		_ = s.store.SoftDeleteEnv(r.Context(), e.ID)
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "cleaned": len(envs)})
+	c.JSON(http.StatusOK, map[string]any{"ok": true, "cleaned": len(envs)})
 }
 
 func verifyForgejoSignature(secret string, body []byte, header http.Header) error {
@@ -2110,7 +2065,7 @@ func hmacSHA256Hex(secret, body []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func (s *Server) handleComposeTemplateExample(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleComposeTemplateExample(c *gin.Context) {
 	example := `services:
   app:
     image: eclipse-temurin:17-jre
@@ -2157,7 +2112,7 @@ networks:
 # .DataDir - Data directory path
 # .RepoFullName, .RepoSlug, .PRNumber, .ChangeSet - For preview environments
 `
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+	c.JSON(http.StatusOK, map[string]any{
 		"example":     example,
 		"description": "Docker Compose template with Go template syntax. Use {{.Variable}} to access data.",
 	})

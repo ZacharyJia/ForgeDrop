@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"forge-drop/internal/httpx"
+	"github.com/gin-gonic/gin"
 )
 
 const managedTraefikContainerName = "forge-drop-traefik"
@@ -47,31 +47,32 @@ type traefikInstallRequest struct {
 	DashboardHost   string `json:"dashboard_host"`
 }
 
-func (s *Server) handleAdminTraefik(w http.ResponseWriter, r *http.Request, rest string) {
+func (s *Server) handleAdminTraefik(c *gin.Context, rest string) {
+	r := c.Request
 	rest = strings.TrimPrefix(rest, "/")
 	// /traefik/status
 	if r.Method == "GET" && (rest == "status" || rest == "/status") {
 		st, err := s.getTraefikStatus(r.Context())
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			writeError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, st)
+		c.JSON(http.StatusOK, st)
 		return
 	}
 
 	// /traefik/install
 	if r.Method == "POST" && (rest == "install" || rest == "/install") {
 		var req traefikInstallRequest
-		_ = httpx.ReadJSON(w, r, &req, 1<<20)
+		_ = readJSON(c, &req, 1<<20)
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
 		defer cancel()
 		st, err := s.installOrRepairTraefik(ctx, req)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			writeError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, st)
+		c.JSON(http.StatusOK, st)
 		return
 	}
 
@@ -81,36 +82,36 @@ func (s *Server) handleAdminTraefik(w http.ResponseWriter, r *http.Request, rest
 			AccessKey string `json:"alicloud_access_key"`
 			SecretKey string `json:"alicloud_secret_key"`
 		}
-		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+		if err := readJSON(c, &req, 1<<20); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid json")
 			return
 		}
 		req.AccessKey = strings.TrimSpace(req.AccessKey)
 		req.SecretKey = strings.TrimSpace(req.SecretKey)
 		if req.AccessKey == "" || req.SecretKey == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "alicloud_access_key/alicloud_secret_key required")
+			writeError(c, http.StatusBadRequest, "alicloud_access_key/alicloud_secret_key required")
 			return
 		}
 		secretsDir := filepath.Join(s.opts.DataDir, "traefik", "secrets")
 		if err := os.MkdirAll(secretsDir, 0o755); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "mkdir failed")
+			writeError(c, http.StatusInternalServerError, "mkdir failed")
 			return
 		}
 		akPath := filepath.Join(secretsDir, "ALICLOUD_ACCESS_KEY")
 		skPath := filepath.Join(secretsDir, "ALICLOUD_SECRET_KEY")
 		if err := os.WriteFile(akPath, []byte(req.AccessKey), 0o600); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+			writeError(c, http.StatusInternalServerError, "write failed")
 			return
 		}
 		if err := os.WriteFile(skPath, []byte(req.SecretKey), 0o600); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
+			writeError(c, http.StatusInternalServerError, "write failed")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	}
 
-	httpx.WriteError(w, http.StatusNotFound, "not found")
+	writeError(c, http.StatusNotFound, "not found")
 }
 
 func (s *Server) getTraefikStatus(ctx context.Context) (*traefikStatus, error) {
