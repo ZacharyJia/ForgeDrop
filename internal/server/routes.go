@@ -830,7 +830,11 @@ func (s *Server) handleAdminServices(c *gin.Context, rest string) {
 				writeError(c, http.StatusNotFound, "not found")
 				return
 			}
-			slots, _ := s.store.ListSlotsByService(r.Context(), serviceID)
+			slots, err := s.store.ListSlotsByService(r.Context(), serviceID)
+			if err != nil {
+				writeError(c, http.StatusInternalServerError, "db error")
+				return
+			}
 			outSlots := make([]map[string]any, 0, len(slots))
 			for _, sl := range slots {
 				outSlots = append(outSlots, slotJSON(sl))

@@ -950,6 +950,7 @@ func (s *Store) ListSlotsByService(ctx context.Context, serviceID string) ([]Slo
 	}
 	defer rows.Close()
 	var out []Slot
+	slotIDs := make([]string, 0, 8)
 	for rows.Next() {
 		var sl Slot
 		var createdAt, updatedAt string
@@ -958,12 +959,59 @@ func (s *Store) ListSlotsByService(ctx context.Context, serviceID string) ([]Slo
 		}
 		sl.CreatedAt, _ = parseSQLiteTime(createdAt)
 		sl.UpdatedAt, _ = parseSQLiteTime(updatedAt)
-		if err := s.enrichSlotRepoIDs(ctx, &sl); err != nil {
+		sl.MountType = normalizeMountType(sl.MountType)
+		out = append(out, sl)
+		slotIDs = append(slotIDs, sl.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(slotIDs)), ",")
+	args := make([]any, 0, len(slotIDs))
+	for _, slotID := range slotIDs {
+		args = append(args, slotID)
+	}
+	q := fmt.Sprintf(`SELECT slot_id, repo_id FROM slot_repo_bindings
+		WHERE slot_id IN (%s)
+		ORDER BY slot_id ASC, created_at ASC, repo_id ASC`, placeholders)
+	bindRows, err := s.sql.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer bindRows.Close()
+
+	repoIDsBySlot := make(map[string][]string, len(out))
+	for bindRows.Next() {
+		var slotID, repoID string
+		if err := bindRows.Scan(&slotID, &repoID); err != nil {
 			return nil, err
 		}
-		out = append(out, sl)
+		repoID = strings.TrimSpace(repoID)
+		if repoID == "" {
+			continue
+		}
+		repoIDsBySlot[slotID] = append(repoIDsBySlot[slotID], repoID)
 	}
-	return out, rows.Err()
+	if err := bindRows.Err(); err != nil {
+		return nil, err
+	}
+
+	for i := range out {
+		sl := &out[i]
+		repoIDs := normalizeRepoIDs(repoIDsBySlot[sl.ID])
+		if len(repoIDs) == 0 && strings.TrimSpace(sl.RepoID) != "" {
+			repoIDs = []string{strings.TrimSpace(sl.RepoID)}
+		}
+		sl.RepoIDs = repoIDs
+		if len(sl.RepoIDs) > 0 {
+			sl.RepoID = sl.RepoIDs[0]
+		}
+	}
+	return out, nil
 }
 
 func (s *Store) DeleteSlot(ctx context.Context, id string) error {
