@@ -946,6 +946,43 @@ func (s *Server) handleAdminServiceArtifacts(c *gin.Context, serviceID string, r
 	writeError(c, http.StatusNotFound, "not found")
 }
 
+func (s *Server) handleAdminArtifactDownload(c *gin.Context) {
+	r := c.Request
+	artifactID := strings.TrimSpace(c.Param("artifactID"))
+	if artifactID == "" {
+		writeError(c, http.StatusBadRequest, "artifact_id required")
+		return
+	}
+
+	artifact, err := s.store.GetArtifactByID(r.Context(), artifactID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeError(c, http.StatusNotFound, "artifact not found")
+			return
+		}
+		writeError(c, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	storedPath := filepath.Clean(strings.TrimSpace(artifact.StoredPath))
+	artifactDir := filepath.Clean(filepath.Join(s.opts.DataDir, "artifacts", artifact.ID))
+	if storedPath == "" || !strings.HasPrefix(storedPath, artifactDir+string(os.PathSeparator)) {
+		writeError(c, http.StatusInternalServerError, "artifact path invalid")
+		return
+	}
+	if _, err := os.Stat(storedPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeError(c, http.StatusNotFound, "artifact file missing")
+			return
+		}
+		writeError(c, http.StatusInternalServerError, "artifact file inaccessible")
+		return
+	}
+
+	downloadName := sanitizeFilename(artifact.OriginalFilename)
+	c.FileAttachment(storedPath, downloadName)
+}
+
 func (s *Server) handleAdminSlots(c *gin.Context, serviceID string, rest []string) {
 	r := c.Request
 	if len(rest) == 0 {

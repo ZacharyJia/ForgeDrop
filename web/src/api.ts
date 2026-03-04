@@ -326,6 +326,10 @@ export const api = {
     return apiFetch(`/api/v1/admin/services/${serviceId}`);
   },
 
+  getArtifactDownloadURL(artifactId: string): string {
+    return `/api/v1/admin/artifacts/${encodeURIComponent(artifactId)}/download`;
+  },
+
   async getServiceStatus(serviceId: string, envId: string): Promise<any> {
     const q = new URLSearchParams({ env_id: envId });
     return apiFetch(`/api/v1/admin/services/${serviceId}/status?${q.toString()}`);

@@ -1476,6 +1476,29 @@ func (s *Store) ListSnapshots(ctx context.Context, envID string) ([]Snapshot, er
 	return out, rows.Err()
 }
 
+func (s *Store) GetArtifactByID(ctx context.Context, artifactID string) (*Artifact, error) {
+	var a Artifact
+	var createdAt string
+	var pr sql.NullInt64
+	if err := s.sql.QueryRowContext(ctx, `SELECT
+		id, app_id, service_id, slot_id, repo_id, sha, ref, pr_number,
+		original_filename, size_bytes, sha256_hex, stored_path, created_at
+		FROM artifacts WHERE id=?`, artifactID).
+		Scan(&a.ID, &a.AppID, &a.ServiceID, &a.SlotID, &a.RepoID, &a.SHA, &a.Ref, &pr,
+			&a.OriginalFilename, &a.SizeBytes, &a.SHA256Hex, &a.StoredPath, &createdAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if pr.Valid {
+		pp := int(pr.Int64)
+		a.PRNumber = &pp
+	}
+	a.CreatedAt, _ = parseSQLiteTime(createdAt)
+	return &a, nil
+}
+
 func (s *Store) GetSnapshotSlotArtifacts(ctx context.Context, snapshotID, serviceID string) (map[string]Artifact, error) {
 	// map slot_key -> artifact
 	rows, err := s.sql.QueryContext(ctx, `SELECT sl.slot_key, a.id, a.app_id, a.service_id, a.slot_id, a.repo_id, a.sha, a.ref, a.pr_number,

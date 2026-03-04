@@ -2021,6 +2021,13 @@ pre {
   border-bottom: 1px solid var(--surface-border);
 }
 
+.artifact-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .snapshot-row {
   display: flex;
   justify-content: space-between;

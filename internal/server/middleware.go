@@ -40,10 +40,12 @@ func noStoreGin() gin.HandlerFunc {
 func (s *Server) withTimeoutGin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Prevent any single request from hanging the whole process.
-		// Keep upload endpoints generous; keep JSON/admin endpoints tight.
+		// Keep upload/download endpoints generous; keep JSON/admin endpoints tight.
 		timeout := 15 * time.Second
 		p := c.Request.URL.Path
-		if p == "/api/v1/artifacts/upload" || strings.Contains(p, "/artifacts/upload-batch") {
+		isArtifactUpload := p == "/api/v1/artifacts/upload" || strings.Contains(p, "/artifacts/upload-batch")
+		isArtifactDownload := strings.Contains(p, "/artifacts/") && strings.HasSuffix(p, "/download")
+		if isArtifactUpload || isArtifactDownload {
 			timeout = 30 * time.Minute
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)

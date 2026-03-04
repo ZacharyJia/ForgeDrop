@@ -17,11 +17,17 @@ function formatBytes(n: number) {
 }
 
 function ArtifactRow({ a }: { a: Artifact }) {
+  const downloadURL = api.getArtifactDownloadURL(a.id);
   return (
     <div className="info-item">
-      <div>
-        <strong>{a.original_filename}</strong>
-        <span className="muted"> · {formatBytes(a.size_bytes)} · {new Date(a.created_at).toLocaleString()}</span>
+      <div className="artifact-row-main">
+        <div>
+          <strong>{a.original_filename}</strong>
+          <span className="muted"> · {formatBytes(a.size_bytes)} · {new Date(a.created_at).toLocaleString()}</span>
+        </div>
+        <a className="btn-secondary" href={downloadURL} download={a.original_filename || "artifact.bin"}>
+          下载
+        </a>
       </div>
       <div className="muted">sha={a.sha || "-"} ref={a.ref || "-"}</div>
     </div>

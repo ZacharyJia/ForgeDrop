@@ -87,6 +87,7 @@ func (s *Server) routes() http.Handler {
 	admin.POST("/services/:serviceID/artifacts/upload-batch", func(c *gin.Context) {
 		s.handleAdminServices(c, "/"+c.Param("serviceID")+"/artifacts/upload-batch")
 	})
+	admin.GET("/artifacts/:artifactID/download", s.handleAdminArtifactDownload)
 
 	admin.GET("/envs/:envID", func(c *gin.Context) { s.handleAdminEnvs(c, "/"+c.Param("envID")) })
 	admin.DELETE("/envs/:envID", func(c *gin.Context) { s.handleAdminEnvs(c, "/"+c.Param("envID")) })
