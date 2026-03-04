@@ -155,10 +155,32 @@ type Slot struct {
 	ServiceID     string
 	SlotKey       string
 	Name          string
-	RepoID        string
+	RepoID        string   // legacy/primary repo id (backward compatibility)
+	RepoIDs       []string // allowed repos for this mount
+	MountType     string   // file|dir
 	ContainerPath string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+func (sl Slot) AllowsRepo(repoID string) bool {
+	repoID = strings.TrimSpace(repoID)
+	if repoID == "" {
+		return false
+	}
+	for _, rid := range sl.RepoIDs {
+		if rid == repoID {
+			return true
+		}
+	}
+	return strings.TrimSpace(sl.RepoID) == repoID
+}
+
+func (sl Slot) PrimaryRepoID() string {
+	if len(sl.RepoIDs) > 0 {
+		return sl.RepoIDs[0]
+	}
+	return strings.TrimSpace(sl.RepoID)
 }
 
 type Env struct {
@@ -168,6 +190,7 @@ type Env struct {
 	Name            string // prod/staging/preview
 	RepoID          *string
 	PRNumber        *int
+	ChangeSet       *string
 	CurrentSnapshot *string
 	CreatedAt       time.Time
 	DeletedAt       *time.Time
@@ -774,25 +797,61 @@ func (s *Store) DeleteService(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *Store) CreateSlot(ctx context.Context, serviceID, slotKey, name, repoID, containerPath string) (*Slot, error) {
+func (s *Store) CreateSlot(ctx context.Context, serviceID, slotKey, name, containerPath, mountType string, repoIDs []string) (*Slot, error) {
 	id, err := ids.New()
 	if err != nil {
 		return nil, err
 	}
-	if containerPath == "" {
+	if strings.TrimSpace(containerPath) == "" {
 		return nil, fmt.Errorf("container_path required")
 	}
+	repoIDs = normalizeRepoIDs(repoIDs)
+	if len(repoIDs) == 0 {
+		return nil, fmt.Errorf("repo_ids required")
+	}
+	mountType = normalizeMountType(mountType)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := s.sql.ExecContext(ctx, `INSERT INTO slots(id, service_id, slot_key, name, repo_id, container_path, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)`,
-		id, serviceID, slotKey, name, repoID, containerPath, now, now); err != nil {
+
+	tx, err := s.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	primaryRepoID := repoIDs[0]
+	if _, err := tx.ExecContext(ctx, `INSERT INTO slots(id, service_id, slot_key, name, repo_id, container_path, mount_type, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+		id, serviceID, slotKey, name, primaryRepoID, containerPath, mountType, now, now); err != nil {
+		return nil, err
+	}
+	for _, repoID := range repoIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO slot_repo_bindings(slot_id, repo_id, created_at) VALUES(?,?,?)`, id, repoID, now); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.GetSlotByID(ctx, id)
 }
 
-func (s *Store) UpdateSlot(ctx context.Context, slotID string, patch Slot) (*Slot, error) {
-	res, err := s.sql.ExecContext(ctx, `UPDATE slots SET name=?, repo_id=?, container_path=?, updated_at=datetime('now') WHERE id=?`,
-		patch.Name, patch.RepoID, patch.ContainerPath, slotID)
+func (s *Store) UpdateSlot(ctx context.Context, slotID string, patch Slot, replaceRepoIDs bool) (*Slot, error) {
+	repoIDs := normalizeRepoIDs(patch.RepoIDs)
+	if replaceRepoIDs && len(repoIDs) == 0 {
+		return nil, fmt.Errorf("repo_ids required")
+	}
+	primaryRepoID := strings.TrimSpace(patch.RepoID)
+	if replaceRepoIDs {
+		primaryRepoID = repoIDs[0]
+	}
+
+	tx, err := s.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `UPDATE slots SET name=?, repo_id=?, container_path=?, mount_type=?, updated_at=datetime('now') WHERE id=?`,
+		patch.Name, primaryRepoID, patch.ContainerPath, normalizeMountType(patch.MountType), slotID)
 	if err != nil {
 		return nil, err
 	}
@@ -800,14 +859,65 @@ func (s *Store) UpdateSlot(ctx context.Context, slotID string, patch Slot) (*Slo
 	if n == 0 {
 		return nil, ErrNotFound
 	}
+	if replaceRepoIDs {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM slot_repo_bindings WHERE slot_id=?`, slotID); err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		for _, repoID := range repoIDs {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO slot_repo_bindings(slot_id, repo_id, created_at) VALUES(?,?,?)`, slotID, repoID, now); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return s.GetSlotByID(ctx, slotID)
+}
+
+func (s *Store) listSlotRepoIDs(ctx context.Context, slotID string) ([]string, error) {
+	rows, err := s.sql.QueryContext(ctx, `SELECT repo_id FROM slot_repo_bindings WHERE slot_id=? ORDER BY created_at ASC, repo_id ASC`, slotID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0, 2)
+	for rows.Next() {
+		var repoID string
+		if err := rows.Scan(&repoID); err != nil {
+			return nil, err
+		}
+		repoID = strings.TrimSpace(repoID)
+		if repoID == "" {
+			continue
+		}
+		out = append(out, repoID)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) enrichSlotRepoIDs(ctx context.Context, sl *Slot) error {
+	repoIDs, err := s.listSlotRepoIDs(ctx, sl.ID)
+	if err != nil {
+		return err
+	}
+	if len(repoIDs) == 0 && strings.TrimSpace(sl.RepoID) != "" {
+		repoIDs = []string{strings.TrimSpace(sl.RepoID)}
+	}
+	sl.RepoIDs = normalizeRepoIDs(repoIDs)
+	if len(sl.RepoIDs) > 0 {
+		sl.RepoID = sl.RepoIDs[0]
+	}
+	sl.MountType = normalizeMountType(sl.MountType)
+	return nil
 }
 
 func (s *Store) GetSlotByID(ctx context.Context, id string) (*Slot, error) {
 	var sl Slot
 	var createdAt, updatedAt string
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, service_id, slot_key, name, repo_id, container_path, created_at, updated_at FROM slots WHERE id=?`, id).
-		Scan(&sl.ID, &sl.ServiceID, &sl.SlotKey, &sl.Name, &sl.RepoID, &sl.ContainerPath, &createdAt, &updatedAt); err != nil {
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, service_id, slot_key, name, repo_id, container_path, mount_type, created_at, updated_at FROM slots WHERE id=?`, id).
+		Scan(&sl.ID, &sl.ServiceID, &sl.SlotKey, &sl.Name, &sl.RepoID, &sl.ContainerPath, &sl.MountType, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -815,6 +925,9 @@ func (s *Store) GetSlotByID(ctx context.Context, id string) (*Slot, error) {
 	}
 	sl.CreatedAt, _ = parseSQLiteTime(createdAt)
 	sl.UpdatedAt, _ = parseSQLiteTime(updatedAt)
+	if err := s.enrichSlotRepoIDs(ctx, &sl); err != nil {
+		return nil, err
+	}
 	return &sl, nil
 }
 
@@ -830,7 +943,7 @@ func (s *Store) GetSlotByKey(ctx context.Context, serviceID, slotKey string) (*S
 }
 
 func (s *Store) ListSlotsByService(ctx context.Context, serviceID string) ([]Slot, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT id, service_id, slot_key, name, repo_id, container_path, created_at, updated_at
+	rows, err := s.sql.QueryContext(ctx, `SELECT id, service_id, slot_key, name, repo_id, container_path, mount_type, created_at, updated_at
 		FROM slots WHERE service_id=? ORDER BY slot_key ASC`, serviceID)
 	if err != nil {
 		return nil, err
@@ -840,11 +953,14 @@ func (s *Store) ListSlotsByService(ctx context.Context, serviceID string) ([]Slo
 	for rows.Next() {
 		var sl Slot
 		var createdAt, updatedAt string
-		if err := rows.Scan(&sl.ID, &sl.ServiceID, &sl.SlotKey, &sl.Name, &sl.RepoID, &sl.ContainerPath, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&sl.ID, &sl.ServiceID, &sl.SlotKey, &sl.Name, &sl.RepoID, &sl.ContainerPath, &sl.MountType, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		sl.CreatedAt, _ = parseSQLiteTime(createdAt)
 		sl.UpdatedAt, _ = parseSQLiteTime(updatedAt)
+		if err := s.enrichSlotRepoIDs(ctx, &sl); err != nil {
+			return nil, err
+		}
 		out = append(out, sl)
 	}
 	return out, rows.Err()
@@ -913,10 +1029,22 @@ func (s *Store) EnsurePreviewPlaceholderEnv(ctx context.Context, appID string) (
 	return s.CreatePreviewPlaceholderEnv(ctx, appID)
 }
 
-func (s *Store) UpsertPreviewEnv(ctx context.Context, appID string, repo Repo, prNumber int) (*Env, error) {
+func (s *Store) UpsertPreviewEnv(ctx context.Context, appID string, repo Repo, prNumber *int, changeSet string) (*Env, error) {
+	changeSet = strings.TrimSpace(changeSet)
 	var id string
-	err := s.sql.QueryRowContext(ctx, `SELECT id FROM envs WHERE app_id=? AND kind='preview' AND repo_id=? AND pr_number=? AND deleted_at IS NULL`,
-		appID, repo.ID, prNumber).Scan(&id)
+	var err error
+	if changeSet != "" {
+		err = s.sql.QueryRowContext(ctx, `SELECT id FROM envs
+			WHERE app_id=? AND kind='preview' AND repo_id=? AND change_set=? AND deleted_at IS NULL`,
+			appID, repo.ID, changeSet).Scan(&id)
+	} else {
+		if prNumber == nil || *prNumber <= 0 {
+			return nil, fmt.Errorf("pr_number required for preview when change_set is empty")
+		}
+		err = s.sql.QueryRowContext(ctx, `SELECT id FROM envs
+			WHERE app_id=? AND kind='preview' AND repo_id=? AND pr_number=? AND (change_set IS NULL OR change_set='') AND deleted_at IS NULL`,
+			appID, repo.ID, *prNumber).Scan(&id)
+	}
 	if err == nil {
 		return s.GetEnvByID(ctx, id)
 	}
@@ -935,9 +1063,13 @@ func (s *Store) UpsertPreviewEnv(ctx context.Context, appID string, repo Repo, p
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.sql.ExecContext(ctx, `INSERT INTO envs(id, app_id, kind, name, repo_id, pr_number, current_snapshot_id, created_at)
-		VALUES(?,?, 'preview', 'preview', ?, ?, ?, datetime('now'))`,
-		id, appID, repo.ID, prNumber, nullableString(nullIfEmpty(templateSnapshot.String))); err != nil {
+	var insertPR any
+	if changeSet == "" && prNumber != nil && *prNumber > 0 {
+		insertPR = *prNumber
+	}
+	if _, err := s.sql.ExecContext(ctx, `INSERT INTO envs(id, app_id, kind, name, repo_id, pr_number, change_set, current_snapshot_id, created_at)
+		VALUES(?,?, 'preview', 'preview', ?, ?, ?, ?, datetime('now'))`,
+		id, appID, repo.ID, insertPR, nullableString(nullIfEmpty(changeSet)), nullableString(nullIfEmpty(templateSnapshot.String))); err != nil {
 		return nil, err
 	}
 	return s.GetEnvByID(ctx, id)
@@ -952,12 +1084,12 @@ func nullIfEmpty(s string) *string {
 }
 
 func (s *Store) ListEnvsByApp(ctx context.Context, appID string) ([]Env, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT e.id, e.app_id, e.kind, e.name, e.repo_id, e.pr_number, e.current_snapshot_id, e.created_at, e.deleted_at,
+	rows, err := s.sql.QueryContext(ctx, `SELECT e.id, e.app_id, e.kind, e.name, e.repo_id, e.pr_number, e.change_set, e.current_snapshot_id, e.created_at, e.deleted_at,
 		r.full_name, r.slug
 		FROM envs e
 		LEFT JOIN repos r ON e.repo_id=r.id
 		WHERE e.app_id=? AND e.deleted_at IS NULL
-		ORDER BY e.kind ASC, e.name ASC, e.pr_number ASC`, appID)
+		ORDER BY e.kind ASC, e.name ASC, e.change_set ASC, e.pr_number ASC`, appID)
 	if err != nil {
 		return nil, err
 	}
@@ -967,12 +1099,13 @@ func (s *Store) ListEnvsByApp(ctx context.Context, appID string) ([]Env, error) 
 		var e Env
 		var repoID sql.NullString
 		var pr sql.NullInt64
+		var changeSet sql.NullString
 		var cur sql.NullString
 		var createdAt string
 		var deletedAt sql.NullString
 		var repoFull sql.NullString
 		var repoSlug sql.NullString
-		if err := rows.Scan(&e.ID, &e.AppID, &e.Kind, &e.Name, &repoID, &pr, &cur, &createdAt, &deletedAt, &repoFull, &repoSlug); err != nil {
+		if err := rows.Scan(&e.ID, &e.AppID, &e.Kind, &e.Name, &repoID, &pr, &changeSet, &cur, &createdAt, &deletedAt, &repoFull, &repoSlug); err != nil {
 			return nil, err
 		}
 		if repoID.Valid {
@@ -981,6 +1114,9 @@ func (s *Store) ListEnvsByApp(ctx context.Context, appID string) ([]Env, error) 
 		if pr.Valid {
 			pp := int(pr.Int64)
 			e.PRNumber = &pp
+		}
+		if changeSet.Valid {
+			e.ChangeSet = &changeSet.String
 		}
 		if cur.Valid {
 			e.CurrentSnapshot = &cur.String
@@ -1006,17 +1142,18 @@ func (s *Store) GetEnvByID(ctx context.Context, id string) (*Env, error) {
 	var e Env
 	var repoID sql.NullString
 	var pr sql.NullInt64
+	var changeSet sql.NullString
 	var cur sql.NullString
 	var createdAt string
 	var deletedAt sql.NullString
 	var repoFull sql.NullString
 	var repoSlug sql.NullString
-	if err := s.sql.QueryRowContext(ctx, `SELECT e.id, e.app_id, e.kind, e.name, e.repo_id, e.pr_number, e.current_snapshot_id, e.created_at, e.deleted_at,
+	if err := s.sql.QueryRowContext(ctx, `SELECT e.id, e.app_id, e.kind, e.name, e.repo_id, e.pr_number, e.change_set, e.current_snapshot_id, e.created_at, e.deleted_at,
 		r.full_name, r.slug
 		FROM envs e
 		LEFT JOIN repos r ON e.repo_id=r.id
 		WHERE e.id=?`, id).
-		Scan(&e.ID, &e.AppID, &e.Kind, &e.Name, &repoID, &pr, &cur, &createdAt, &deletedAt, &repoFull, &repoSlug); err != nil {
+		Scan(&e.ID, &e.AppID, &e.Kind, &e.Name, &repoID, &pr, &changeSet, &cur, &createdAt, &deletedAt, &repoFull, &repoSlug); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -1028,6 +1165,9 @@ func (s *Store) GetEnvByID(ctx context.Context, id string) (*Env, error) {
 	if pr.Valid {
 		pp := int(pr.Int64)
 		e.PRNumber = &pp
+	}
+	if changeSet.Valid {
+		e.ChangeSet = &changeSet.String
 	}
 	if cur.Valid {
 		e.CurrentSnapshot = &cur.String
@@ -1321,6 +1461,60 @@ func (s *Store) GetSnapshotSlotArtifacts(ctx context.Context, snapshotID, servic
 	return out, rows.Err()
 }
 
+// GetEffectiveSlotArtifacts resolves artifacts with fallback:
+// current env snapshot -> named preview env snapshot -> empty.
+func (s *Store) GetEffectiveSlotArtifacts(ctx context.Context, envID, serviceID string) (map[string]Artifact, *string, error) {
+	env, err := s.GetEnvByID(ctx, envID)
+	if err != nil {
+		return nil, nil, err
+	}
+	cur, err := s.GetEnvCurrentSnapshotID(ctx, envID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	out := make(map[string]Artifact)
+	if cur != nil && strings.TrimSpace(*cur) != "" {
+		currentMap, err := s.GetSnapshotSlotArtifacts(ctx, *cur, serviceID)
+		if err != nil {
+			return nil, nil, err
+		}
+		for k, v := range currentMap {
+			out[k] = v
+		}
+	}
+
+	previewEnvID, err := s.GetEnvIDByName(ctx, env.AppID, "preview")
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return out, cur, nil
+		}
+		return nil, nil, err
+	}
+	if previewEnvID == envID {
+		return out, cur, nil
+	}
+
+	previewSnap, err := s.GetEnvCurrentSnapshotID(ctx, previewEnvID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if previewSnap == nil || strings.TrimSpace(*previewSnap) == "" {
+		return out, cur, nil
+	}
+	previewMap, err := s.GetSnapshotSlotArtifacts(ctx, *previewSnap, serviceID)
+	if err != nil {
+		return nil, nil, err
+	}
+	for k, v := range previewMap {
+		if _, exists := out[k]; exists {
+			continue
+		}
+		out[k] = v
+	}
+	return out, cur, nil
+}
+
 func parseSQLiteTime(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -1378,7 +1572,7 @@ func (s *Store) FindPreviewEnvID(ctx context.Context, appID, repoID string, prNu
 }
 
 func (s *Store) FindEnvsForRepoPR(ctx context.Context, repoID string, prNumber int) ([]Env, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT e.id, e.app_id, e.kind, e.name, e.repo_id, e.pr_number, e.current_snapshot_id, e.created_at, e.deleted_at,
+	rows, err := s.sql.QueryContext(ctx, `SELECT e.id, e.app_id, e.kind, e.name, e.repo_id, e.pr_number, e.change_set, e.current_snapshot_id, e.created_at, e.deleted_at,
 		r.full_name, r.slug
 		FROM envs e
 		LEFT JOIN repos r ON e.repo_id=r.id
@@ -1393,12 +1587,13 @@ func (s *Store) FindEnvsForRepoPR(ctx context.Context, repoID string, prNumber i
 		var e Env
 		var repoIDNull sql.NullString
 		var pr sql.NullInt64
+		var changeSet sql.NullString
 		var cur sql.NullString
 		var createdAt string
 		var deletedAt sql.NullString
 		var repoFull sql.NullString
 		var repoSlug sql.NullString
-		if err := rows.Scan(&e.ID, &e.AppID, &e.Kind, &e.Name, &repoIDNull, &pr, &cur, &createdAt, &deletedAt, &repoFull, &repoSlug); err != nil {
+		if err := rows.Scan(&e.ID, &e.AppID, &e.Kind, &e.Name, &repoIDNull, &pr, &changeSet, &cur, &createdAt, &deletedAt, &repoFull, &repoSlug); err != nil {
 			return nil, err
 		}
 		if repoIDNull.Valid {
@@ -1407,6 +1602,9 @@ func (s *Store) FindEnvsForRepoPR(ctx context.Context, repoID string, prNumber i
 		if pr.Valid {
 			pp := int(pr.Int64)
 			e.PRNumber = &pp
+		}
+		if changeSet.Valid {
+			e.ChangeSet = &changeSet.String
 		}
 		if cur.Valid {
 			e.CurrentSnapshot = &cur.String
@@ -1448,6 +1646,34 @@ func normalizeDeployStrategy(v string) string {
 		return "restart"
 	}
 	return "recreate"
+}
+
+func normalizeMountType(v string) string {
+	v = strings.TrimSpace(strings.ToLower(v))
+	if v == "dir" {
+		return "dir"
+	}
+	return "file"
+}
+
+func normalizeRepoIDs(repoIDs []string) []string {
+	if len(repoIDs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(repoIDs))
+	seen := make(map[string]struct{}, len(repoIDs))
+	for _, rid := range repoIDs {
+		rid = strings.TrimSpace(rid)
+		if rid == "" {
+			continue
+		}
+		if _, ok := seen[rid]; ok {
+			continue
+		}
+		seen[rid] = struct{}{}
+		out = append(out, rid)
+	}
+	return out
 }
 
 func nullableInt(p *int) any {

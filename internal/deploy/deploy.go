@@ -1,6 +1,9 @@
 package deploy
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -64,19 +67,11 @@ func (d *Deployer) DeployService(ctx context.Context, envID, serviceID, strategy
 		return fmt.Errorf("service disabled")
 	}
 
-	curSnap, err := d.store.GetEnvCurrentSnapshotID(ctx, envID)
-	if err != nil {
-		return err
-	}
-	if curSnap == nil {
-		return fmt.Errorf("no snapshot yet for env")
-	}
-
 	slots, err := d.store.ListSlotsByService(ctx, serviceID)
 	if err != nil {
 		return err
 	}
-	artBySlotKey, err := d.store.GetSnapshotSlotArtifacts(ctx, *curSnap, serviceID)
+	artBySlotKey, _, err := d.store.GetEffectiveSlotArtifacts(ctx, envID, serviceID)
 	if err != nil {
 		return err
 	}
@@ -86,10 +81,10 @@ func (d *Deployer) DeployService(ctx context.Context, envID, serviceID, strategy
 	for _, sl := range slots {
 		a, ok := artBySlotKey[sl.SlotKey]
 		if !ok {
-			continue // allow missing slots (newly added or not yet uploaded)
+			continue // fallback exhausted; keep empty
 		}
-		hostPath := d.runtimeSlotFile(envID, serviceID, sl.SlotKey)
-		if err := d.materializeFile(hostPath, a.StoredPath); err != nil {
+		hostPath := d.runtimeSlotPath(envID, serviceID, sl.SlotKey, sl.MountType)
+		if err := d.materializeMount(hostPath, a.StoredPath, sl.MountType); err != nil {
 			return fmt.Errorf("slot %s: %w", sl.SlotKey, err)
 		}
 		artifactPaths[sl.SlotKey] = hostPath
@@ -126,11 +121,17 @@ func (d *Deployer) applyServiceWithCompose(ctx context.Context, env *db.Env, app
 		if env.RepoSlug != nil {
 			repoSlug = *env.RepoSlug
 		}
+		changeSet := ""
+		if env.ChangeSet != nil {
+			changeSet = strings.TrimSpace(*env.ChangeSet)
+		}
 		pr := 0
 		if env.PRNumber != nil {
 			pr = *env.PRNumber
+		} else if changeSet != "" {
+			pr = syntheticPreviewNumber(changeSet)
 		}
-		host := renderHostTemplate(hostTpl, app.AppKey, repoSlug, pr, svc.ServiceKey, baseDomain)
+		host := renderHostTemplate(hostTpl, app.AppKey, repoSlug, pr, changeSet, svc.ServiceKey, baseDomain)
 		if host != "" {
 			hostRule = host
 		}
@@ -259,11 +260,17 @@ func (d *Deployer) ServiceURL(ctx context.Context, envID, serviceID string) (str
 		if env.RepoSlug != nil {
 			repoSlug = *env.RepoSlug
 		}
+		changeSet := ""
+		if env.ChangeSet != nil {
+			changeSet = strings.TrimSpace(*env.ChangeSet)
+		}
 		pr := 0
 		if env.PRNumber != nil {
 			pr = *env.PRNumber
+		} else if changeSet != "" {
+			pr = syntheticPreviewNumber(changeSet)
 		}
-		host = renderHostTemplate(tpl, app.AppKey, repoSlug, pr, svc.ServiceKey, baseDomain)
+		host = renderHostTemplate(tpl, app.AppKey, repoSlug, pr, changeSet, svc.ServiceKey, baseDomain)
 	} else if env.Kind == "named" {
 		if env.Name == "prod" && strings.TrimSpace(svc.ProdHost) != "" {
 			host = strings.TrimSpace(svc.ProdHost)
@@ -404,11 +411,21 @@ func (d *Deployer) ServiceLogs(ctx context.Context, envID, serviceID string, tai
 	return d.composeManager.LogsOutput(ctx, envID, serviceID, svc.ServiceKey, tail)
 }
 
-func (d *Deployer) runtimeSlotFile(envID, serviceID, slotKey string) string {
+func (d *Deployer) runtimeSlotPath(envID, serviceID, slotKey, mountType string) string {
+	if strings.TrimSpace(strings.ToLower(mountType)) == "dir" {
+		return filepath.Join(d.dataDir, "runtime", "env-"+envID, "service-"+serviceID, "slots", slotKey, "dir")
+	}
 	return filepath.Join(d.dataDir, "runtime", "env-"+envID, "service-"+serviceID, "slots", slotKey, "file")
 }
 
-func (d *Deployer) materializeFile(dstPath, srcPath string) error {
+func (d *Deployer) materializeMount(dstPath, srcPath, mountType string) error {
+	if strings.TrimSpace(strings.ToLower(mountType)) == "dir" {
+		return materializeDir(dstPath, srcPath)
+	}
+	return materializeFile(dstPath, srcPath)
+}
+
+func materializeFile(dstPath, srcPath string) error {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return err
 	}
@@ -439,15 +456,186 @@ func (d *Deployer) materializeFile(dstPath, srcPath string) error {
 	return os.Rename(tmp, dstPath)
 }
 
-func renderHostTemplate(tpl, appKey, repoSlug string, pr int, serviceKey, baseDomain string) string {
+func materializeDir(dstDir, archivePath string) error {
+	tmpDir := dstDir + ".tmp"
+	_ = os.RemoveAll(tmpDir)
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return err
+	}
+
+	lower := strings.ToLower(strings.TrimSpace(archivePath))
+	switch {
+	case strings.HasSuffix(lower, ".zip"):
+		if err := extractZIP(archivePath, tmpDir); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return err
+		}
+	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
+		if err := extractTarGZ(archivePath, tmpDir); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return err
+		}
+	case strings.HasSuffix(lower, ".tar"):
+		if err := extractTar(archivePath, tmpDir); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return err
+		}
+	default:
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("unsupported dir artifact format: %s", filepath.Base(archivePath))
+	}
+
+	_ = os.RemoveAll(dstDir)
+	return os.Rename(tmpDir, dstDir)
+}
+
+func safeJoinExtractPath(root, name string) (string, error) {
+	clean := filepath.Clean(name)
+	if clean == "." || clean == "" {
+		return "", fmt.Errorf("invalid archive entry")
+	}
+	if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+		return "", fmt.Errorf("unsafe archive entry: %s", name)
+	}
+	dst := filepath.Join(root, clean)
+	prefix := root + string(os.PathSeparator)
+	if dst != root && !strings.HasPrefix(dst, prefix) {
+		return "", fmt.Errorf("unsafe archive entry: %s", name)
+	}
+	return dst, nil
+}
+
+func extractZIP(srcPath, dstDir string) error {
+	r, err := zip.OpenReader(srcPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	for _, f := range r.File {
+		target, err := safeJoinExtractPath(dstDir, f.Name)
+		if err != nil {
+			return err
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		mode := f.Mode().Perm()
+		if mode == 0 {
+			mode = 0o644
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+		if err != nil {
+			_ = rc.Close()
+			return err
+		}
+		if _, err := io.Copy(out, rc); err != nil {
+			_ = rc.Close()
+			_ = out.Close()
+			return err
+		}
+		if err := rc.Close(); err != nil {
+			_ = out.Close()
+			return err
+		}
+		if err := out.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractTar(srcPath, dstDir string) error {
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return extractTarReader(tar.NewReader(f), dstDir)
+}
+
+func extractTarGZ(srcPath, dstDir string) error {
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+	return extractTarReader(tar.NewReader(gzr), dstDir)
+}
+
+func extractTarReader(tr *tar.Reader, dstDir string) error {
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		target, err := safeJoinExtractPath(dstDir, hdr.Name)
+		if err != nil {
+			return err
+		}
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			mode := os.FileMode(0o644)
+			if hdr.Mode > 0 {
+				mode = os.FileMode(hdr.Mode & 0o777)
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				_ = out.Close()
+				return err
+			}
+			if err := out.Close(); err != nil {
+				return err
+			}
+		default:
+			// Ignore symlinks and other special file types for safety.
+			continue
+		}
+	}
+}
+
+func renderHostTemplate(tpl, appKey, repoSlug string, pr int, changeSet, serviceKey, baseDomain string) string {
 	tpl = strings.TrimSpace(tpl)
 	if tpl == "" {
-		tpl = "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}"
+		if strings.TrimSpace(changeSet) != "" {
+			tpl = "cs-{app}-{repoSlug}-{change_set}-{service}.{base_domain}"
+		} else {
+			tpl = "pr-{app}-{repoSlug}-{pr}-{service}.{base_domain}"
+		}
 	}
+	changeSet = slugDNSLabel(changeSet)
 	replacer := strings.NewReplacer(
 		"{app}", appKey,
 		"{repoSlug}", repoSlug,
 		"{pr}", fmt.Sprintf("%d", pr),
+		"{change_set}", changeSet,
 		"{service}", serviceKey,
 		"{base_domain}", baseDomain,
 	)
@@ -455,4 +643,17 @@ func renderHostTemplate(tpl, appKey, repoSlug string, pr int, serviceKey, baseDo
 	host = strings.ReplaceAll(host, "..", ".")
 	host = strings.Trim(host, ".")
 	return host
+}
+
+func syntheticPreviewNumber(changeSet string) int {
+	changeSet = strings.TrimSpace(changeSet)
+	if changeSet == "" {
+		return 0
+	}
+	var sum uint32
+	for i := 0; i < len(changeSet); i++ {
+		sum = sum*33 + uint32(changeSet[i])
+	}
+	// Keep it positive and reasonably short for host templates that still use {pr}.
+	return int(sum%900000 + 100000)
 }

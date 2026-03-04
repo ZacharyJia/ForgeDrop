@@ -42,6 +42,7 @@ export interface Env {
   current_snapshot_id?: string | null;
   repo_id?: string | null;
   pr_number?: number | null;
+  change_set?: string | null;
   repo_full_name?: string | null;
   repo_slug?: string | null;
   deleted_at?: string | null;
@@ -53,6 +54,8 @@ export interface Slot {
   slot_key: string;
   name: string;
   repo_id: string;
+  repo_ids: string[];
+  mount_type: 'file' | 'dir';
   container_path: string;
   created_at: string;
   updated_at: string;
@@ -352,7 +355,9 @@ export const api = {
   async createSlot(serviceId: string, payload: {
     slot_key: string;
     name: string;
-    repo_id: string;
+    repo_id?: string;
+    repo_ids?: string[];
+    mount_type?: 'file' | 'dir';
     container_path: string;
   }): Promise<Slot> {
     return apiFetch(`/api/v1/admin/services/${serviceId}/slots`, {

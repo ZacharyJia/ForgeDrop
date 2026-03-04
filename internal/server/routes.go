@@ -59,6 +59,27 @@ func resolveDeployStrategy(explicit, appDefault string) string {
 	return parseDeployStrategy(appDefault)
 }
 
+func normalizeRepoIDsInput(repoID string, repoIDs []string) []string {
+	out := make([]string, 0, len(repoIDs)+1)
+	seen := make(map[string]struct{}, len(repoIDs)+1)
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		if _, ok := seen[v]; ok {
+			return
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	add(repoID)
+	for _, rid := range repoIDs {
+		add(rid)
+	}
+	return out
+}
+
 func appJSON(a *db.App) map[string]any {
 	if a == nil {
 		return nil
@@ -98,12 +119,18 @@ func serviceJSON(svc *db.Service) map[string]any {
 }
 
 func slotJSON(sl db.Slot) map[string]any {
+	repoIDs := sl.RepoIDs
+	if repoIDs == nil {
+		repoIDs = []string{}
+	}
 	return map[string]any{
 		"id":             sl.ID,
 		"service_id":     sl.ServiceID,
 		"slot_key":       sl.SlotKey,
 		"name":           sl.Name,
-		"repo_id":        sl.RepoID,
+		"repo_id":        sl.PrimaryRepoID(),
+		"repo_ids":       repoIDs,
+		"mount_type":     sl.MountType,
 		"container_path": sl.ContainerPath,
 		"created_at":     sl.CreatedAt.UTC().Format(time.RFC3339Nano),
 		"updated_at":     sl.UpdatedAt.UTC().Format(time.RFC3339Nano),
@@ -123,6 +150,7 @@ func envJSON(e *db.Env) map[string]any {
 		"current_snapshot_id": e.CurrentSnapshot,
 		"repo_id":             e.RepoID,
 		"pr_number":           e.PRNumber,
+		"change_set":          e.ChangeSet,
 		"deleted_at":          e.DeletedAt,
 		"repo_full_name":      e.RepoFullName,
 		"repo_slug":           e.RepoSlug,
@@ -986,10 +1014,12 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 			return
 		case "POST":
 			var req struct {
-				SlotKey       string `json:"slot_key"`
-				Name          string `json:"name"`
-				RepoID        string `json:"repo_id"`
-				ContainerPath string `json:"container_path"`
+				SlotKey       string   `json:"slot_key"`
+				Name          string   `json:"name"`
+				RepoID        string   `json:"repo_id"`
+				RepoIDs       []string `json:"repo_ids"`
+				MountType     string   `json:"mount_type"`
+				ContainerPath string   `json:"container_path"`
 			}
 			if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
 				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
@@ -997,11 +1027,12 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 			}
 			req.SlotKey = strings.TrimSpace(req.SlotKey)
 			req.Name = strings.TrimSpace(req.Name)
-			if req.SlotKey == "" || req.Name == "" || req.RepoID == "" || req.ContainerPath == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "slot_key/name/repo_id/container_path required")
+			repoIDs := normalizeRepoIDsInput(req.RepoID, req.RepoIDs)
+			if req.SlotKey == "" || req.Name == "" || len(repoIDs) == 0 || req.ContainerPath == "" {
+				httpx.WriteError(w, http.StatusBadRequest, "slot_key/name/repo_ids/container_path required")
 				return
 			}
-			slot, err := s.store.CreateSlot(r.Context(), serviceID, req.SlotKey, req.Name, req.RepoID, req.ContainerPath)
+			slot, err := s.store.CreateSlot(r.Context(), serviceID, req.SlotKey, req.Name, req.ContainerPath, req.MountType, repoIDs)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "create failed")
 				return
@@ -1019,9 +1050,11 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 	switch r.Method {
 	case "PUT":
 		var req struct {
-			Name          string `json:"name"`
-			RepoID        string `json:"repo_id"`
-			ContainerPath string `json:"container_path"`
+			Name          string   `json:"name"`
+			RepoID        string   `json:"repo_id"`
+			RepoIDs       []string `json:"repo_ids"`
+			MountType     string   `json:"mount_type"`
+			ContainerPath string   `json:"container_path"`
 		}
 		if err := httpx.ReadJSON(w, r, &req, 1<<20); err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid json")
@@ -1039,10 +1072,22 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request, servic
 		if req.RepoID != "" {
 			patch.RepoID = req.RepoID
 		}
+		if req.MountType != "" {
+			patch.MountType = req.MountType
+		}
 		if req.ContainerPath != "" {
 			patch.ContainerPath = req.ContainerPath
 		}
-		updated, err := s.store.UpdateSlot(r.Context(), slotID, patch)
+		repoIDs := normalizeRepoIDsInput(req.RepoID, req.RepoIDs)
+		replaceRepoIDs := req.RepoID != "" || req.RepoIDs != nil
+		if replaceRepoIDs {
+			if len(repoIDs) == 0 {
+				httpx.WriteError(w, http.StatusBadRequest, "repo_ids required")
+				return
+			}
+			patch.RepoIDs = repoIDs
+		}
+		updated, err := s.store.UpdateSlot(r.Context(), slotID, patch, replaceRepoIDs)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "update failed")
 			return
@@ -1170,16 +1215,7 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 			httpx.WriteError(w, http.StatusBadRequest, "env does not belong to this service's app")
 			return
 		}
-		cur, err := s.store.GetEnvCurrentSnapshotID(r.Context(), envID)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "db error")
-			return
-		}
-		if cur == nil {
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"snapshot_id": nil, "artifacts_by_slot_key": map[string]any{}})
-			return
-		}
-		m, err := s.store.GetSnapshotSlotArtifacts(r.Context(), *cur, serviceID)
+		m, cur, err := s.store.GetEffectiveSlotArtifacts(r.Context(), envID, serviceID)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "db error")
 			return
@@ -1188,7 +1224,7 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 		for k, a := range m {
 			out[k] = artifactJSON(a)
 		}
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"snapshot_id": *cur, "artifacts_by_slot_key": out})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"snapshot_id": cur, "artifacts_by_slot_key": out})
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "sync-preview-snapshot" && r.Method == "POST" {
@@ -1197,8 +1233,8 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request, rest st
 			httpx.WriteError(w, http.StatusNotFound, "unknown env")
 			return
 		}
-		if env.Kind != "preview" || env.RepoID == nil || env.PRNumber == nil {
-			httpx.WriteError(w, http.StatusBadRequest, "only PR preview env can sync from preview template")
+		if env.Kind != "preview" || env.RepoID == nil || (env.PRNumber == nil && env.ChangeSet == nil) {
+			httpx.WriteError(w, http.StatusBadRequest, "only repo-scoped preview env can sync from preview template")
 			return
 		}
 		tplEnvID, err := s.store.GetEnvIDByName(r.Context(), env.AppID, "preview")
@@ -1291,6 +1327,10 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	sha := get("sha")
 	ref := get("ref")
 	prStr := get("pr_number")
+	changeSet := get("change_set")
+	if strings.TrimSpace(changeSet) == "" {
+		changeSet = get("chagne_set")
+	}
 
 	if appKey == "" || envName == "" || serviceKey == "" || slotKey == "" || repoFull == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "app/env/service/slot/repo required")
@@ -1298,17 +1338,17 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var prNumber *int
-	if strings.EqualFold(envName, "preview") {
-		if prStr == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "pr_number required for preview")
-			return
-		}
+	if strings.TrimSpace(prStr) != "" {
 		n, err := strconv.Atoi(prStr)
 		if err != nil || n <= 0 {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid pr_number")
 			return
 		}
 		prNumber = &n
+	}
+	if strings.EqualFold(envName, "preview") && strings.TrimSpace(changeSet) == "" && prNumber == nil {
+		httpx.WriteError(w, http.StatusBadRequest, "pr_number or change_set required for preview")
+		return
 	}
 
 	app, err := s.store.GetAppByKey(r.Context(), appKey)
@@ -1332,14 +1372,14 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "unknown slot")
 		return
 	}
-	if slot.RepoID != repo.ID {
+	if !slot.AllowsRepo(repo.ID) {
 		httpx.WriteError(w, http.StatusForbidden, "repo not allowed for this slot")
 		return
 	}
 
 	var envID string
 	if strings.EqualFold(envName, "preview") {
-		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, *prNumber)
+		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, prNumber, changeSet)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "env failed")
 			return
@@ -1372,6 +1412,10 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filename := sanitizeFilename(header.Filename)
+	if err := validateUploadByMountType(*slot, filename); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	dstPath := filepath.Join(artifactDir, filename)
 
 	sha256Hex, sizeBytes, err := writeFileAndSHA256(dstPath, file)
@@ -1384,6 +1428,9 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 	note := "upload"
 	if sha != "" {
 		note = "upload sha=" + sha
+	}
+	if strings.TrimSpace(changeSet) != "" {
+		note += " change_set=" + strings.TrimSpace(changeSet)
 	}
 	res, err := s.store.CreateArtifactAndSnapshot(r.Context(), db.UploadParams{
 		ArtifactID: artifactID,
@@ -1433,6 +1480,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		"env":            envName,
 		"service":        svc.ServiceKey,
 		"slot":           slot.SlotKey,
+		"change_set":     strings.TrimSpace(changeSet),
 		"container_id":   nil,
 	})
 }
@@ -1453,6 +1501,10 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	sha := get("sha")
 	ref := get("ref")
 	prStr := get("pr_number")
+	changeSet := get("change_set")
+	if strings.TrimSpace(changeSet) == "" {
+		changeSet = get("chagne_set")
+	}
 
 	if appKey == "" || envName == "" || serviceKey == "" || repoFull == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "app/env/service/repo required")
@@ -1460,17 +1512,17 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	}
 
 	var prNumber *int
-	if strings.EqualFold(envName, "preview") {
-		if prStr == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "pr_number required for preview")
-			return
-		}
+	if strings.TrimSpace(prStr) != "" {
 		n, err := strconv.Atoi(prStr)
 		if err != nil || n <= 0 {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid pr_number")
 			return
 		}
 		prNumber = &n
+	}
+	if strings.EqualFold(envName, "preview") && strings.TrimSpace(changeSet) == "" && prNumber == nil {
+		httpx.WriteError(w, http.StatusBadRequest, "pr_number or change_set required for preview")
+		return
 	}
 
 	app, err := s.store.GetAppByKey(r.Context(), appKey)
@@ -1493,7 +1545,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	// Resolve env id
 	var envID string
 	if strings.EqualFold(envName, "preview") {
-		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, *prNumber)
+		env, err := s.store.UpsertPreviewEnv(r.Context(), app.ID, *repo, prNumber, changeSet)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "env failed")
 			return
@@ -1531,7 +1583,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 			httpx.WriteError(w, http.StatusBadRequest, "unknown slot in upload: "+slotKey)
 			return
 		}
-		if sl.RepoID != repo.ID {
+		if !sl.AllowsRepo(repo.ID) {
 			httpx.WriteError(w, http.StatusForbidden, "repo not allowed for slot: "+slotKey)
 			return
 		}
@@ -1557,6 +1609,10 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		filename := sanitizeFilename(h.Filename)
+		if err := validateUploadByMountType(sl, filename); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		dstPath := filepath.Join(artifactDir, filename)
 		sha256Hex, sizeBytes, err := writeFileAndSHA256(dstPath, file)
 		if err != nil {
@@ -1588,6 +1644,9 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 	note := "batch upload"
 	if sha != "" {
 		note = "batch upload sha=" + sha
+	}
+	if strings.TrimSpace(changeSet) != "" {
+		note += " change_set=" + strings.TrimSpace(changeSet)
 	}
 	res, err := s.store.CreateArtifactsAndSnapshotBatch(r.Context(), db.UploadBatchParams{
 		AppID:     app.ID,
@@ -1627,6 +1686,7 @@ func (s *Server) handleArtifactUploadBatch(w http.ResponseWriter, r *http.Reques
 		"app":                  app.AppKey,
 		"env":                  envName,
 		"service":              svc.ServiceKey,
+		"change_set":           strings.TrimSpace(changeSet),
 	})
 }
 
@@ -1668,6 +1728,21 @@ func sanitizeFilename(name string) string {
 	}
 	name = strings.ReplaceAll(name, string(os.PathSeparator), "_")
 	return name
+}
+
+func isSupportedArchiveFilename(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	return strings.HasSuffix(n, ".zip") || strings.HasSuffix(n, ".tar") || strings.HasSuffix(n, ".tar.gz") || strings.HasSuffix(n, ".tgz")
+}
+
+func validateUploadByMountType(slot db.Slot, filename string) error {
+	if strings.TrimSpace(slot.MountType) != "dir" {
+		return nil
+	}
+	if isSupportedArchiveFilename(filename) {
+		return nil
+	}
+	return errors.New("dir mount only accepts archive files (.zip/.tar/.tar.gz/.tgz)")
 }
 
 func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r *http.Request, serviceID string) {
@@ -1760,17 +1835,26 @@ func (s *Server) handleAdminServiceArtifactUploadBatch(w http.ResponseWriter, r 
 			return
 		}
 		filename := sanitizeFilename(h.Filename)
+		if err := validateUploadByMountType(sl, filename); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		dstPath := filepath.Join(artifactDir, filename)
 		sha256Hex, sizeBytes, err := writeFileAndSHA256(dstPath, file)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "write failed")
 			return
 		}
+		primaryRepoID := sl.PrimaryRepoID()
+		if primaryRepoID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "slot has no repo binding: "+sl.SlotKey)
+			return
+		}
 
 		entries = append(entries, db.UploadBatchEntry{
 			ArtifactID: artifactID,
 			SlotID:     sl.ID,
-			RepoID:     sl.RepoID,
+			RepoID:     primaryRepoID,
 			SHA:        sha,
 			Ref:        ref,
 			PRNumber:   nil,
@@ -2071,7 +2155,7 @@ networks:
 # .Env - Environment variables map
 # .RuntimeDir - Runtime directory path
 # .DataDir - Data directory path
-# .RepoFullName, .RepoSlug, .PRNumber - For preview environments
+# .RepoFullName, .RepoSlug, .PRNumber, .ChangeSet - For preview environments
 `
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"example":     example,

@@ -31,7 +31,7 @@ func Migrate(ctx context.Context, sqlDB *sql.DB) error {
 	return nil
 }
 
-const latestSchemaVersion = 4
+const latestSchemaVersion = 5
 
 func applyMigration(ctx context.Context, sqlDB *sql.DB, version int) error {
 	tx, err := sqlDB.BeginTx(ctx, nil)
@@ -55,6 +55,10 @@ func applyMigration(ctx context.Context, sqlDB *sql.DB, version int) error {
 		}
 	case 4:
 		if err := migrationV4(ctx, tx); err != nil {
+			return err
+		}
+	case 5:
+		if err := migrationV5(ctx, tx); err != nil {
 			return err
 		}
 	default:
@@ -217,6 +221,40 @@ func migrationV3(ctx context.Context, tx *sql.Tx) error {
 func migrationV4(ctx context.Context, tx *sql.Tx) error {
 	stmts := []string{
 		`ALTER TABLE services ADD COLUMN deploy_strategy TEXT NOT NULL DEFAULT 'recreate'`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.ExecContext(ctx, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrationV5(ctx context.Context, tx *sql.Tx) error {
+	stmts := []string{
+		// Mount semantics.
+		`ALTER TABLE slots ADD COLUMN mount_type TEXT NOT NULL DEFAULT 'file'`,
+		`CREATE TABLE IF NOT EXISTS slot_repo_bindings (
+			slot_id TEXT NOT NULL REFERENCES slots(id) ON DELETE CASCADE,
+			repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE RESTRICT,
+			created_at TEXT NOT NULL,
+			PRIMARY KEY(slot_id, repo_id)
+		)`,
+		`INSERT INTO slot_repo_bindings(slot_id, repo_id, created_at)
+			SELECT id, repo_id, datetime('now')
+			FROM slots
+			WHERE repo_id IS NOT NULL AND repo_id <> ''
+			ON CONFLICT(slot_id, repo_id) DO NOTHING`,
+		`CREATE INDEX IF NOT EXISTS idx_slot_repo_bindings_repo ON slot_repo_bindings(repo_id)`,
+
+		// Preview environment selector.
+		`ALTER TABLE envs ADD COLUMN change_set TEXT`,
+		`CREATE INDEX IF NOT EXISTS idx_env_preview_repo_pr
+			ON envs(app_id, kind, repo_id, pr_number)
+			WHERE deleted_at IS NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_env_preview_repo_change_set
+			ON envs(app_id, kind, name, repo_id, change_set)
+			WHERE deleted_at IS NULL AND kind='preview' AND change_set IS NOT NULL AND change_set <> ''`,
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s); err != nil {

@@ -48,6 +48,7 @@ type TemplateData struct {
 	RepoFullName string
 	RepoSlug     string
 	PRNumber     int
+	ChangeSet    string
 
 	// Environment variables from service config
 	Env map[string]string
@@ -278,6 +279,9 @@ func BuildTemplateData(
 	}
 	if env.PRNumber != nil {
 		data.PRNumber = *env.PRNumber
+	}
+	if env.ChangeSet != nil {
+		data.ChangeSet = *env.ChangeSet
 	}
 
 	return data

@@ -31,14 +31,20 @@ export function ServiceDetailPage() {
   });
 
   const [showCreateSlot, setShowCreateSlot] = useState(false);
-  const [newSlot, setNewSlot] = useState({ slot_key: "", name: "", repo_id: "", container_path: "" });
+  const [newSlot, setNewSlot] = useState<{ slot_key: string; name: string; repo_ids: string[]; mount_type: "file" | "dir"; container_path: string }>({
+    slot_key: "",
+    name: "",
+    repo_ids: [],
+    mount_type: "file",
+    container_path: "",
+  });
 
   const createSlotMutation = useMutation({
     mutationFn: () => api.createSlot(serviceId!, newSlot),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["service", serviceId] });
       setShowCreateSlot(false);
-      setNewSlot({ slot_key: "", name: "", repo_id: "", container_path: "" });
+      setNewSlot({ slot_key: "", name: "", repo_ids: [], mount_type: "file", container_path: "" });
       toast.success("槽位已创建");
     },
     onError: (e) => toast.error(String(e), "创建失败"),
@@ -150,7 +156,8 @@ export function ServiceDetailPage() {
                   </button>
                 </div>
                 <div className="repo-body">
-                  <div className="info-item"><strong>repo_id：</strong> <code>{sl.repo_id}</code></div>
+                  <div className="info-item"><strong>类型：</strong> <code>{sl.mount_type}</code></div>
+                  <div className="info-item"><strong>repo_ids：</strong> <code>{(sl.repo_ids && sl.repo_ids.length > 0 ? sl.repo_ids : [sl.repo_id]).join(", ")}</code></div>
                   <div className="info-item"><strong>容器内路径：</strong> <code>{sl.container_path}</code></div>
                 </div>
               </div>
@@ -181,16 +188,29 @@ export function ServiceDetailPage() {
                 />
               </div>
               <div className="form-group">
-                <label>仓库</label>
-                <select value={newSlot.repo_id} onChange={(e) => setNewSlot({ ...newSlot, repo_id: e.target.value })}>
-                  <option value="">请选择仓库</option>
+                <label>仓库（可多选）</label>
+                <select
+                  multiple
+                  value={newSlot.repo_ids}
+                  onChange={(e) => {
+                    const values = Array.from(e.target.selectedOptions).map((o) => o.value);
+                    setNewSlot({ ...newSlot, repo_ids: values });
+                  }}
+                >
                   {(reposQuery.data ?? []).map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.full_name}
                     </option>
                   ))}
                 </select>
-                <p className="help-text">该槽位只允许来自该仓库的制品上传。</p>
+                <p className="help-text">该挂载点允许来自这些仓库的制品上传。</p>
+              </div>
+              <div className="form-group">
+                <label>挂载类型</label>
+                <select value={newSlot.mount_type} onChange={(e) => setNewSlot({ ...newSlot, mount_type: e.target.value as "file" | "dir" })}>
+                  <option value="file">file（单文件）</option>
+                  <option value="dir">dir（目录，上传 zip/tar/tar.gz/tgz）</option>
+                </select>
               </div>
               <div className="form-group">
                 <label>容器内挂载路径</label>
@@ -200,6 +220,7 @@ export function ServiceDetailPage() {
                   onChange={(e) => setNewSlot({ ...newSlot, container_path: e.target.value })}
                   placeholder="/app/app.jar"
                 />
+                <p className="help-text">{newSlot.mount_type === "dir" ? "dir 类型会挂载整个目录。" : "file 类型会挂载单个文件。"}</p>
               </div>
               {createSlotMutation.error && <div className="error">{String(createSlotMutation.error)}</div>}
               <div className="modal-actions">

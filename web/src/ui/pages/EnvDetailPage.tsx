@@ -202,7 +202,7 @@ function ServicePanel(props: {
                 const a = artifactsBySlotKey[sl.slot_key];
                 return (
                   <div key={sl.id} className="slot-row">
-                    <div className="info-item"><strong>{sl.name}</strong> <span className="muted">({sl.slot_key} → <code>{sl.container_path}</code>)</span></div>
+                    <div className="info-item"><strong>{sl.name}</strong> <span className="muted">({sl.slot_key} · {sl.mount_type} → <code>{sl.container_path}</code>)</span></div>
                     {a ? <ArtifactRow a={a} /> : <div className="muted">未上传</div>}
                   </div>
                 );
@@ -256,6 +256,11 @@ function ServicePanel(props: {
                 }}
               />
               <p className="help-text">挂载到容器：<code>{sl.container_path}</code></p>
+              {sl.mount_type === "dir" ? (
+                <p className="help-text">dir 类型仅支持上传 zip/tar/tar.gz/tgz。</p>
+              ) : (
+                <p className="help-text">file 类型会挂载单个文件。</p>
+              )}
             </div>
           ))}
 
@@ -335,12 +340,15 @@ export function EnvDetailPage() {
   const data = envQuery.data;
   const services = data?.services ?? [];
   const slotsByService = data?.slots_by_service ?? {};
-  const isPRPreviewEnv = data?.env?.kind === "preview" && !!data?.env?.repo_id && !!data?.env?.pr_number;
+  const isPRPreviewEnv = data?.env?.kind === "preview" && !!data?.env?.repo_id && (!!data?.env?.pr_number || !!data?.env?.change_set);
 
   const namedEnvInfo = useMemo(() => {
     if (!data?.env) return null;
     if (data.env.kind === "named") return `${data.env.name}（命名环境）`;
     if (data.env.kind === "preview") {
+      if (data.env.change_set) {
+        return `preview（change_set=${data.env.change_set}）`;
+      }
       const pr = data.env.pr_number ? `PR #${data.env.pr_number}` : "-";
       return `preview（${pr}）`;
     }
@@ -384,7 +392,7 @@ export function EnvDetailPage() {
               className="btn-secondary"
               type="button"
               onClick={() => {
-                if (confirm("确认从命名环境 preview 同步最新快照，并立即应用到当前 PR 环境？")) {
+                if (confirm("确认从命名环境 preview 同步最新快照，并立即应用到当前预览环境？")) {
                   syncPreviewSnapshotMutation.mutate();
                 }
               }}
@@ -419,8 +427,8 @@ export function EnvDetailPage() {
 
       <div className="info-box">
         <div className="info-item"><strong>当前快照（desired）：</strong> {data.current_snapshot_id ? <code>{String(data.current_snapshot_id)}</code> : <span className="muted">暂无</span>}</div>
-        {data.env.kind === "preview" && !data.env.pr_number && (
-          <div className="muted">这是 preview 环境，但缺少 PR 信息（repo/pr）。通常 PR 预览环境会由 CI 上传时自动创建。</div>
+        {data.env.kind === "preview" && !data.env.pr_number && !data.env.change_set && (
+          <div className="muted">这是 preview 环境，但缺少 PR/change_set 信息。通常预览环境会由 CI 上传时自动创建。</div>
         )}
 
         {serviceLinks.length > 0 && (
