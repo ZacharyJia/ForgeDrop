@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Env, type Slot } from "../../api";
+import { api, type Slot } from "../../api";
 import { useToast } from "../toast";
 
 export function ServiceDetailPage() {
@@ -14,13 +14,6 @@ export function ServiceDetailPage() {
     queryKey: ["service", serviceId],
     queryFn: () => api.getService(serviceId!),
     enabled: !!serviceId,
-    refetchOnWindowFocus: false,
-  });
-
-  const appQuery = useQuery({
-    queryKey: ["appForService", data?.service?.app_id],
-    queryFn: () => api.getApp(data!.service.app_id),
-    enabled: !!data?.service?.app_id,
     refetchOnWindowFocus: false,
   });
 
@@ -59,10 +52,6 @@ export function ServiceDetailPage() {
     onError: (e) => toast.error(String(e), "删除失败"),
   });
 
-  const envs: Env[] = useMemo(() => {
-    return appQuery.data?.envs ?? [];
-  }, [appQuery.data]);
-
   if (isLoading) return <div className="loading">加载中...</div>;
   if (!data) return <div className="error">未找到服务</div>;
 
@@ -88,33 +77,6 @@ export function ServiceDetailPage() {
       <div className="info-box">
         <div className="info-item"><strong>说明：</strong>上传/部署/状态查看已统一迁移到<strong>环境详情页</strong>。</div>
         <div className="muted">这里仅负责定义 slot（repo 绑定 + 容器挂载路径）。</div>
-      </div>
-
-      <div className="section">
-        <div className="section-header">
-          <h2>环境入口</h2>
-          <p className="section-desc">进入环境后可查看该环境下各服务状态、槽位文件版本，并统一上传与部署。</p>
-        </div>
-        {envs.length === 0 ? (
-          <div className="empty-state">
-            <p>暂无环境。</p>
-            <p className="muted">请先到 App 详情页创建环境（新建 App 会默认创建 prod 与 preview）。</p>
-          </div>
-        ) : (
-          <div className="repos-list">
-            {envs.map((e) => (
-              <div key={e.id} className="repo-card">
-                <div className="repo-header">
-                  <div>
-                    <h3>{e.name}</h3>
-                    <div className="muted">{e.kind === "named" ? "命名环境" : e.kind}</div>
-                  </div>
-                  <Link to={`/envs/${e.id}`} className="btn-secondary">进入环境</Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="section">

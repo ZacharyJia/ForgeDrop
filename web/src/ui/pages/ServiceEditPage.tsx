@@ -4,6 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { api, type Service } from "../../api";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
+import { EditorView } from "@codemirror/view";
 import { useToast } from "../toast";
 
 export function ServiceEditPage() {
@@ -130,7 +131,7 @@ export function ServiceEditPage() {
               className="compose-editor"
               value={formData.compose_template || ""}
               height="520px"
-              extensions={[yaml()]}
+              extensions={[yaml(), EditorView.lineWrapping]}
               onChange={(value) => setFormData({ ...formData, compose_template: value })}
               basicSetup={{
                 lineNumbers: true,

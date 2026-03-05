@@ -1631,6 +1631,23 @@ summary:focus-visible {
   border-radius: 0.72rem;
   overflow: hidden;
   background: var(--input-bg);
+  width: min(100%, 1120px);
+  max-width: 100%;
+}
+
+.compose-editor .cm-editor,
+.compose-editor .cm-scroller,
+.compose-editor .cm-content {
+  max-width: 100%;
+}
+
+.compose-editor .cm-scroller {
+  overflow-x: hidden;
+}
+
+.compose-editor .cm-content {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .app-card:hover,
