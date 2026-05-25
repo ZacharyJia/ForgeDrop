@@ -87,16 +87,16 @@ func TestApplyManifestEndToEnd(t *testing.T) {
 				{
 					ServiceKey:      "web",
 					Name:            "Web",
-					Image:           "eclipse-temurin:21-jre",
-					Command:         "sh -lc \"java -jar /app/app.jar\"",
+					Image:           "debian:trixie-slim",
+					Command:         "sh -lc \"chmod +x /app/mes && /app/mes\"",
 					ContainerPort:   8080,
-					ComposeTemplate: "services:\n  app:\n    image: eclipse-temurin:21-jre\n    command: sh -lc \"java -jar /app/app.jar\"\n    volumes:\n      {{- range $slotKey, $hostPath := .Artifacts }}\n      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}:ro\n      {{- end }}\n",
+					ComposeTemplate: "services:\n  app:\n    image: debian:trixie-slim\n    command: sh -lc \"chmod +x /app/mes && /app/mes\"\n    volumes:\n      {{- range $slotKey, $hostPath := .Artifacts }}\n      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}\n      {{- end }}\n",
 					Enabled:         &enabled,
 					Slots: []SlotSpec{
 						{
 							SlotKey:       "main",
 							Name:          "Main Artifact",
-							ContainerPath: "/app/app.jar",
+							ContainerPath: "/app/mes",
 						},
 					},
 				},

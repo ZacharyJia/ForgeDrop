@@ -1,109 +1,139 @@
 ---
 name: forge-drop-autodeploy
-description: Use this skill when you need to configure forge-drop for a new or existing project, generate a deploy manifest, apply it through the built-in forge-dropctl CLI, and wire CI artifact uploads for automatic deployment.
+description: Use this skill when you need AI to set up forge-drop automatic deployment for a repository with this fixed pattern: apply forge-drop config, add a Forgejo Actions workflow, upload one built artifact, deploy PR previews, and update the PR comment with the preview URL.
 ---
 
 # Forge Drop Auto Deploy
 
-Use this skill when the user wants AI to set up automatic deployment on top of `forge-drop`.
+Use this skill for one specific integration pattern only.
 
-This skill is for two kinds of work:
+The default integration pattern is:
 
-1. Configure `forge-drop` itself for a project by generating a declarative manifest and applying it with `forge-dropctl`.
-2. Update the target project's CI so build artifacts are uploaded to `forge-drop` automatically.
+1. `forge-dropctl apply` creates or updates forge-drop resources.
+2. The repo uses Forgejo/Gitea Actions.
+3. CI builds one deployment artifact.
+4. PR builds upload that artifact to `env=preview`.
+5. CI updates the PR comment using `service_url` from `deploy-response.json`.
+6. Pushes to `master` upload the same artifact to `env=prod`.
+
+Do not expand this skill into other deployment styles unless the user explicitly asks.
+
+## Scope
+
+This skill is for "make this repository follow the standard forge-drop CI deployment pattern".
+
+Expected repo-side outcome:
+
+1. forge-drop resources for the repo exist
+2. the repo has a Forgejo workflow for build + preview deploy + prod deploy
+3. the repo has an upload script
+4. the repo has a PR preview comment script
 
 ## What to use
 
 - Apply config with `go run ./cmd/forge-dropctl apply ...`
-- Use the manifest example at `assets/deploy-manifest.example.json`
-- Read `references/manifest-format.md` when you need field-level details
-- Use `assets/forgejo-actions-upload.yml` as the starting point for CI upload logic
+- Use `assets/deploy-manifest.example.json` as the manifest starting point
+- Read `references/manifest-format.md` only when manifest fields need clarification
+- Use `assets/forgejo-actions-autodeploy.yml` as the workflow starting point
+- Use `assets/upload-deploy-artifact.js` as the upload script starting point
+- Use `assets/update-pr-preview-comment.js` as the PR comment script starting point
+- Read `references/ci-preview-comment-flow.md` for the exact CI flow
 
-## Workflow
+## Default assumptions
 
-1. Inspect the target project.
-2. Decide what artifact `forge-drop` should receive.
-3. Decide the runtime container contract.
-4. Generate a manifest JSON.
-5. Apply the manifest with `forge-dropctl`.
-6. Patch CI to upload the artifact to `/api/v1/artifacts/upload` or `/api/v1/artifacts/upload-batch`.
-7. If useful, document the exact upload fields and env vars inside the target repo.
+- Git hosting is Forgejo
+- CI is Forgejo Actions
+- Git-system credentials and variables are already provided at the organization level
+- Deployment is CI-driven only
+- No webhook setup is required for this workflow
+- One service receives one main artifact through `/api/v1/artifacts/upload`
 
-## Project inspection checklist
+If the target repo already has working build steps, keep those build steps and only adapt the deployment parts around them.
 
-- Identify the build output: `jar`, binary, `zip`, config package, static bundle, or multiple files.
-- Identify whether deployment needs one slot or multiple slots.
-- Identify the runtime image and start command.
-- Identify the service port if the service is externally reachable.
-- Identify the repo full name used by CI uploads.
+## Exact workflow to implement
 
-Important: `forge-drop` deploys uploaded artifacts into a runtime container. It does not build source code into an image for you. If the project currently depends on `docker build`, convert the deployment design into:
+1. Inspect the repo and find the real build output.
+2. Decide the runtime image, command, app key, service key, and slot path.
+3. Generate a manifest for forge-drop.
+4. Run `forge-dropctl apply`.
+5. Capture the returned `plain_token` if a token was created or rotated.
+6. Add or update a Forgejo Actions workflow with three jobs:
+   `package`
+   `deploy-preview`
+   `deploy-master-prod`
+7. Add or update `scripts/upload-deploy-artifact.js`.
+8. Add or update `scripts/update-pr-preview-comment.js`.
+9. Make PR builds upload to `preview` with `pr_number`.
+10. Make `master` pushes upload to `prod`.
 
-- CI builds artifact(s)
-- `forge-drop` mounts artifact(s) into the container defined by `compose_template`
+## CI pattern to follow
 
-## Manifest rules
+Match the yandun-mes-v2 shape closely:
+Match this fixed shape closely:
 
-- Keep one top-level repo in `repos` for the common case.
-- Put every named environment under `app.envs`. If omitted, `forge-dropctl` ensures `prod` and `preview`.
-- Put the full desired service shape in the manifest, especially `compose_template`.
-- Each slot maps one uploaded artifact to one container path.
-- When a slot omits `repos`, it defaults to the first repo in `repos`.
-- If a CI token is needed, set `api_token.name`.
-- If the token already exists and you need the plain token again, set `api_token.rotate_if_exists=true`.
+- trigger on `push` to `master`
+- optionally keep `issue-*` push builds if the repo uses issue branches
+- trigger on `pull_request`
+- build once in `package`
+- reuse the built artifact in deploy jobs
+- preview deploy job runs only for pull requests
+- prod deploy job runs only for `push` on `master`
 
-## Apply command
+## Upload contract to follow
 
-Use environment variables or flags for credentials:
-
-```bash
-FORGE_DROP_SERVER=http://127.0.0.1:8080 \
-FORGE_DROP_USERNAME=admin \
-FORGE_DROP_PASSWORD='secret123' \
-go run ./cmd/forge-dropctl apply --manifest /path/to/deploy.manifest.json
-```
-
-The command returns JSON. Use it to capture created resource IDs and any newly issued `plain_token`.
-
-## CI wiring
-
-For single-slot services, use `/api/v1/artifacts/upload`.
-
-Required form fields:
+Use `/api/v1/artifacts/upload` with these fields:
 
 - `app`
 - `env`
 - `service`
 - `slot`
 - `repo`
+- `sha`
 - `artifact`
 
-Useful optional fields:
+For preview deploys, also send:
 
-- `sha`
-- `ref`
-- `deploy=0` when you want upload without immediate deployment
-- `deploy_strategy=restart` for fast in-place restarts when appropriate
-- `pr_number` or `change_set` for preview environments
+- `pr_number`
 
-For multi-slot services, use `/api/v1/artifacts/upload-batch` and send files as `file_<slotKey>`.
+Persist the raw response to `deploy-response.json`. The PR comment step must read `service_url` from that file.
 
-## Heuristics
+## PR comment contract to follow
 
-- Java JAR service:
-  image often `eclipse-temurin:*` runtime images
-  slot path often `/app/app.jar`
-  command often `sh -lc "java -jar /app/app.jar"`
-- Go binary:
-  image can be `debian:bookworm-slim` or another runtime with required libc
-  slot path often `/app/server`
-  command often `sh -lc "chmod +x /app/server && /app/server"`
-- Static frontend:
-  upload built assets as a directory-style artifact and mount into nginx or caddy docroot
-- App plus config:
-  use two slots, for example `main` and `config`
+Use Forgejo issue comments for pull requests.
+
+The script should:
+
+1. read the PR number from `FORGEJO_EVENT_PATH`
+2. read `service_url` from `deploy-response.json`
+3. find an existing bot comment by prefix
+4. update that comment if found
+5. create a new one otherwise
+
+## Manifest guidance
+
+Keep the manifest aligned to this workflow:
+
+- one repo in `repos`
+- `app.envs` should include `prod` and `preview`
+- one service in the common case
+- one slot named `main` in the common case
+- include `settings.base_domain`
+- include `settings.named_host_template`
+- include `settings.preview_host_template`
+- include `api_token.name` when CI needs a token
+
+Do not introduce webhook-oriented fields into the default path.
+
+## What to avoid
+
+- do not make webhook setup part of the default workflow
+- do not introduce upload-batch as the main path
+- do not introduce change-set preview flow as the main path
+- do not broaden this skill to GitHub Actions or other CI providers by default
+- do not turn this skill into a generic forge-drop operations guide
 
 ## When to read more
 
-- Read `references/manifest-format.md` when you need exact field meanings or defaults.
-- Read the repo README and `docs/USAGE.md` when the deployment design depends on preview envs, Traefik, or artifact upload semantics.
+- Read `references/ci-preview-comment-flow.md` for the exact deployment and comment sequence
+- Read `references/manifest-format.md` when manifest field names need confirmation
+- Read the repo README and `docs/USAGE.md` only when runtime/container decisions depend on forge-drop behavior

@@ -1,0 +1,90 @@
+name: build-and-deploy
+
+on:
+  push:
+    branches:
+      - master
+      - issue-*
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Keep this job structure, but replace the build commands and artifact path
+      # with the target repository's real build output.
+      - name: Build artifact
+        run: |
+          mkdir -p dist
+          echo "replace me with the real build artifact" > dist/app.bin
+
+      - name: Upload build output for later jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-artifact
+          path: dist/app.bin
+          if-no-files-found: error
+
+  deploy-preview:
+    needs: package
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-artifact
+          path: artifact/
+
+      - name: Upload preview artifact to forge-drop
+        env:
+          DEPLOY_URL: ${{ vars.FORGE_DROP_URL }}/api/v1/artifacts/upload
+          DEPLOY_TOKEN: ${{ vars.DEPLOY_TOKEN }}
+          DEPLOY_APP: replace-app-key
+          DEPLOY_ENV: preview
+          DEPLOY_SERVICE: replace-service-key
+          DEPLOY_SLOT: replace-slot-key
+          DEPLOY_REPO: ${{ forgejo.repository }}
+          DEPLOY_PR_NUMBER: ${{ forgejo.event.number }}
+          DEPLOY_SHA: ${{ forgejo.sha }}
+          DEPLOY_ARTIFACT: artifact/app.bin
+        run: node ./scripts/upload-deploy-artifact.js
+
+      - name: Update PR preview comment
+        env:
+          FORGEJO_TOKEN: ${{ vars.FORGEJO_TOKEN }}
+        run: node ./scripts/update-pr-preview-comment.js
+
+  deploy-prod:
+    needs: package
+    if: github.event_name == 'push' && github.ref_name == 'master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-artifact
+          path: artifact/
+
+      - name: Upload master artifact to prod
+        env:
+          DEPLOY_URL: ${{ vars.FORGE_DROP_URL }}/api/v1/artifacts/upload
+          DEPLOY_TOKEN: ${{ vars.DEPLOY_TOKEN }}
+          DEPLOY_APP: replace-app-key
+          DEPLOY_ENV: prod
+          DEPLOY_SERVICE: replace-service-key
+          DEPLOY_SLOT: replace-slot-key
+          DEPLOY_REPO: ${{ forgejo.repository }}
+          DEPLOY_SHA: ${{ forgejo.sha }}
+          DEPLOY_ARTIFACT: artifact/app.bin
+        run: node ./scripts/upload-deploy-artifact.js

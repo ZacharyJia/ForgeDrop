@@ -1,7 +1,7 @@
 interface:
   display_name: "Forge Drop Auto Deploy"
-  short_description: "Configure forge-drop auto deployment"
-  default_prompt: "Use $forge-drop-autodeploy to configure forge-drop and wire CI artifact uploads for this project."
+  short_description: "Set up the standard forge-drop workflow"
+  default_prompt: "Use $forge-drop-autodeploy to configure this repository with the standard forge-drop workflow: forge-drop apply, Forgejo Actions deploy jobs, preview deployment, and PR preview comments."
 
 policy:
   allow_implicit_invocation: true

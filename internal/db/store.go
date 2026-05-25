@@ -666,10 +666,10 @@ func (s *Store) CreateService(ctx context.Context, appID, serviceKey, name, imag
 		containerPort = 8080
 	}
 	if image == "" {
-		image = "eclipse-temurin:17-jre"
+		image = "debian:trixie-slim"
 	}
 	if command == "" {
-		command = "java -jar /app/app.jar"
+		command = "sh -lc \"chmod +x /app/mes && /app/mes\""
 	}
 	if runUser == "" {
 		runUser = "1000:1000"
@@ -677,11 +677,11 @@ func (s *Store) CreateService(ctx context.Context, appID, serviceKey, name, imag
 	entrypoints := "websecure"
 	composeTemplate := strings.TrimSpace(`services:
   app:
-    image: eclipse-temurin:17-jre
-    command: sh -lc "java -jar /app/app.jar"
+    image: debian:trixie-slim
+    command: sh -lc "chmod +x /app/mes && /app/mes"
     volumes:
       {{- range $slotKey, $hostPath := .Artifacts }}
-      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}:ro
+      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}
       {{- end }}
     labels:
       - traefik.enable=true

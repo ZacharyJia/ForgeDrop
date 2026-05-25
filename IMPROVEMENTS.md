@@ -50,12 +50,10 @@ composeManager.Up(ctx, envID, serviceID, serviceKey)
 ```yaml
 services:
   app:
-    image: eclipse-temurin:17-jre
-    command: java -jar /app/app.jar
+    image: debian:trixie-slim
+    command: sh -lc "chmod +x /app/mes && /app/mes"
     volumes:
-      - {{index .Artifacts "main"}}:/app/app.jar:ro
-    environment:
-      SPRING_PROFILES_ACTIVE: {{.EnvName}}
+      - {{index .Artifacts "main"}}:/app/mes
     labels:
       - traefik.enable=true
       - traefik.http.routers.{{.RouterName}}.rule=Host(`{{.Host}}`)

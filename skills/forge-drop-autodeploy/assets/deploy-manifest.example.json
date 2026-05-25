@@ -7,8 +7,7 @@
   },
   "repos": [
     {
-      "full_name": "acme/demo-service",
-      "webhook_secret": "replace-me"
+      "full_name": "acme/demo-service"
     }
   ],
   "app": {
@@ -23,20 +22,17 @@
       {
         "service_key": "api",
         "name": "API",
-        "image": "eclipse-temurin:21-jre",
-        "command": "sh -lc \"java -jar /app/app.jar\"",
+        "image": "debian:trixie-slim",
+        "command": "sh -lc \"chmod +x /app/mes && /app/mes\"",
         "container_port": 8080,
-        "env": {
-          "SPRING_PROFILES_ACTIVE": "{{.EnvName}}"
-        },
         "deploy_strategy": "recreate",
         "enabled": true,
-        "compose_template": "services:\n  app:\n    image: eclipse-temurin:21-jre\n    command: sh -lc \"java -jar /app/app.jar\"\n    volumes:\n      {{- range $slotKey, $hostPath := .Artifacts }}\n      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}:ro\n      {{- end }}\n    environment:\n      SPRING_PROFILES_ACTIVE: {{.EnvName}}\n      {{- range $key, $value := .Env }}\n      {{$key}}: {{$value}}\n      {{- end }}\n    labels:\n      - traefik.enable=true\n      - traefik.http.routers.{{.RouterName}}.rule=Host(`{{.Host}}`)\n      - traefik.http.routers.{{.RouterName}}.entrypoints={{.EntryPoints}}\n      - traefik.http.routers.{{.RouterName}}.tls=true\n      - traefik.http.routers.{{.RouterName}}.tls.certresolver=le\n      - traefik.http.services.{{.TraefikService}}.loadbalancer.server.port={{.Port}}\n    networks:\n      - {{.Network}}\n    restart: unless-stopped\n\nnetworks:\n  {{.Network}}:\n    external: true\n",
+        "compose_template": "services:\n  app:\n    image: debian:trixie-slim\n    command: sh -lc \"chmod +x /app/mes && /app/mes\"\n    volumes:\n      {{- range $slotKey, $hostPath := .Artifacts }}\n      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}\n      {{- end }}\n    labels:\n      - traefik.enable=true\n      - traefik.http.routers.{{.RouterName}}.rule=Host(`{{.Host}}`)\n      - traefik.http.routers.{{.RouterName}}.entrypoints={{.EntryPoints}}\n      - traefik.http.routers.{{.RouterName}}.tls=true\n      - traefik.http.services.{{.TraefikService}}.loadbalancer.server.port={{.Port}}\n    networks:\n      - {{.Network}}\n    restart: unless-stopped\n\nnetworks:\n  {{.Network}}:\n    external: true\n",
         "slots": [
           {
             "slot_key": "main",
-            "name": "App Jar",
-            "container_path": "/app/app.jar"
+            "name": "App Binary",
+            "container_path": "/app/mes"
           }
         ]
       }

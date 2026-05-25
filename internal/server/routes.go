@@ -2145,16 +2145,11 @@ func hmacSHA256Hex(secret, body []byte) string {
 func (s *Server) handleComposeTemplateExample(c *gin.Context) {
 	example := `services:
   app:
-    image: eclipse-temurin:17-jre
-    command: sh -lc "java -jar /app/app.jar"
+    image: debian:trixie-slim
+    command: sh -lc "chmod +x /app/mes && /app/mes"
     volumes:
       {{- range $slotKey, $hostPath := .Artifacts }}
-      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}:ro
-      {{- end }}
-    environment:
-      SPRING_PROFILES_ACTIVE: {{.EnvName}}
-      {{- range $key, $value := .Env }}
-      {{$key}}: {{$value}}
+      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}
       {{- end }}
     labels:
       - traefik.enable=true
