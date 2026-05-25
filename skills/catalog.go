@@ -118,7 +118,7 @@ func readBundle(name string) (Bundle, error) {
 
 func isSkillTextFile(filePath string) bool {
 	switch strings.ToLower(path.Ext(filePath)) {
-	case ".md", ".markdown", ".yaml", ".yml", ".json", ".txt":
+	case ".md", ".markdown", ".yaml", ".yml", ".json", ".txt", ".js", ".mjs", ".cjs":
 		return true
 	default:
 		return false

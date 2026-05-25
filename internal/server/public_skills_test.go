@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
 
@@ -51,6 +52,9 @@ func TestPublicSkillsEndpoint(t *testing.T) {
 		if skill.Files[0].Content == "" {
 			t.Fatalf("expected SKILL.md content")
 		}
+		if len(skill.Files) != 8 {
+			t.Fatalf("expected 8 files for forge-drop-autodeploy, got %d: %+v", len(skill.Files), skill.Files)
+		}
 	}
 	if !found {
 		t.Fatalf("expected forge-drop-autodeploy in %+v", body.Skills)
@@ -87,5 +91,18 @@ func TestPublicSkillByNameEndpoint(t *testing.T) {
 	}
 	if len(body.Files) == 0 {
 		t.Fatalf("expected files in response")
+	}
+	if len(body.Files) != 8 {
+		t.Fatalf("expected 8 files in response, got %d: %+v", len(body.Files), body.Files)
+	}
+	paths := make([]string, 0, len(body.Files))
+	for _, file := range body.Files {
+		paths = append(paths, file.Path)
+	}
+	if !slices.Contains(paths, "assets/upload-deploy-artifact.js") {
+		t.Fatalf("expected upload script in response, got %+v", paths)
+	}
+	if !slices.Contains(paths, "assets/update-pr-preview-comment.js") {
+		t.Fatalf("expected preview comment script in response, got %+v", paths)
 	}
 }

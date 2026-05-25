@@ -1,6 +1,6 @@
 # Deploy Manifest Format
 
-`forge-dropctl apply` consumes a JSON manifest.
+`forgedrop-ctl apply` consumes a JSON manifest.
 
 ## Top-level fields
 
@@ -57,7 +57,7 @@ Optional CI token request.
 }
 ```
 
-When `rotate_if_exists` is `false` and the token already exists, `forge-dropctl apply` fails because forge-drop cannot reveal the previous plain token again.
+When `rotate_if_exists` is `false` and the token already exists, `forgedrop-ctl apply` fails because forge-drop cannot reveal the previous plain token again.
 
 ## Service fields
 

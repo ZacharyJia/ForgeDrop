@@ -20,23 +20,23 @@ func main() {
 	switch os.Args[1] {
 	case "apply":
 		if err := runApply(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "forge-dropctl: %v\n", err)
+			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
 			os.Exit(1)
 		}
 	case "-h", "--help", "help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "forge-dropctl: unknown command %q\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "forgedrop-ctl: unknown command %q\n\n", os.Args[1])
 		usage()
 		os.Exit(2)
 	}
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `forge-dropctl
+	fmt.Fprintf(os.Stderr, `forgedrop-ctl
 
 Usage:
-  forge-dropctl apply --server URL --username USER --password PASS --manifest FILE
+  forgedrop-ctl apply --server URL --username USER --password PASS --manifest FILE
 
 Environment variables:
   FORGE_DROP_SERVER

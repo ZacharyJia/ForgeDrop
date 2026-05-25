@@ -1,6 +1,6 @@
 ---
 name: forge-drop-autodeploy
-description: Use this skill when you need AI to set up forge-drop automatic deployment for a repository with this fixed pattern: apply forge-drop config, add a Forgejo Actions workflow, upload one built artifact, deploy PR previews, and update the PR comment with the preview URL.
+description: "Use this skill when you need AI to set up forge-drop automatic deployment for a repository with this fixed pattern: apply forge-drop config, add a Forgejo Actions workflow, upload one built artifact, deploy PR previews, and update the PR comment with the preview URL."
 ---
 
 # Forge Drop Auto Deploy
@@ -9,7 +9,7 @@ Use this skill for one specific integration pattern only.
 
 The default integration pattern is:
 
-1. `forge-dropctl apply` creates or updates forge-drop resources.
+1. `forgedrop-ctl apply` creates or updates forge-drop resources.
 2. The repo uses Forgejo/Gitea Actions.
 3. CI builds one deployment artifact.
 4. PR builds upload that artifact to `env=preview`.
@@ -31,7 +31,7 @@ Expected repo-side outcome:
 
 ## What to use
 
-- Apply config with `go run ./cmd/forge-dropctl apply ...`
+- Apply config with `./bin/forgedrop-ctl apply ...`
 - Use `assets/deploy-manifest.example.json` as the manifest starting point
 - Read `references/manifest-format.md` only when manifest fields need clarification
 - Use `assets/forgejo-actions-autodeploy.yml` as the workflow starting point
@@ -55,7 +55,7 @@ If the target repo already has working build steps, keep those build steps and o
 1. Inspect the repo and find the real build output.
 2. Decide the runtime image, command, app key, service key, and slot path.
 3. Generate a manifest for forge-drop.
-4. Run `forge-dropctl apply`.
+4. Run `forgedrop-ctl apply`.
 5. Capture the returned `plain_token` if a token was created or rotated.
 6. Add or update a Forgejo Actions workflow with three jobs:
    `package`

@@ -7,16 +7,16 @@
 如果你希望让 AI 直接为一个新项目或现有项目完成 forge-drop 配置，优先使用仓库根目录的 skill 和声明式 CLI：
 
 - skill：`skills/forge-drop-autodeploy/`
-- CLI：`go run ./cmd/forge-dropctl apply --manifest <manifest.json>`
+- CLI：`./bin/forgedrop-ctl apply --manifest <manifest.json>`
 
 推荐流程：
 
 1. AI 先分析目标项目的构建产物和运行方式
 2. AI 生成 deploy manifest
-3. AI 调用 `forge-dropctl apply` 自动创建或更新配置
+3. AI 调用 `forgedrop-ctl apply` 自动创建或更新配置
 4. AI 再修改项目 CI，把产物上传到 forge-drop
 
-`forge-dropctl apply` 会自动处理这些资源：
+`forgedrop-ctl apply` 会自动处理这些资源：
 
 - settings
 - repos
@@ -32,7 +32,7 @@
 FORGE_DROP_SERVER=http://127.0.0.1:8080 \
 FORGE_DROP_USERNAME=admin \
 FORGE_DROP_PASSWORD='secret123' \
-go run ./cmd/forge-dropctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
+./bin/forgedrop-ctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
 ```
 
 命令会输出 JSON，便于 AI 继续消费，比如拿到新创建的 `plain_token` 去写 CI secrets。

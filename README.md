@@ -31,13 +31,13 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 
 - `skills/forge-drop-autodeploy/`
 
-这个 skill 配合内置 CLI `forge-dropctl` 使用，目标是让 AI 可以直接为新项目或存量项目生成自动部署配置，而不是手工点很多管理台表单。
+这个 skill 配合内置 CLI `forgedrop-ctl` 使用，目标是让 AI 可以直接为新项目或存量项目生成自动部署配置，而不是手工点很多管理台表单。
 
 典型流程：
 
 1. AI 分析项目，决定制品类型、运行镜像、启动命令和 slot
 2. AI 生成一份 deploy manifest JSON
-3. AI 调用 `forge-dropctl apply` 自动创建/更新 repo、app、env、service、slot、CI token
+3. AI 调用 `forgedrop-ctl apply` 自动创建/更新 repo、app、env、service、slot、CI token
 4. AI 再去修改目标项目的 CI，把制品上传到 forge-drop
 
 示例命令：
@@ -46,7 +46,7 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 FORGE_DROP_SERVER=http://127.0.0.1:8080 \
 FORGE_DROP_USERNAME=admin \
 FORGE_DROP_PASSWORD='secret123' \
-go run ./cmd/forge-dropctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
+./bin/forgedrop-ctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
 ```
 
 相关文件：
