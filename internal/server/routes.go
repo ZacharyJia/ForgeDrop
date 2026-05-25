@@ -843,14 +843,14 @@ func (s *Server) handleAdminServices(c *gin.Context, rest string) {
 			return
 		case "PUT":
 			var req struct {
-				Name             string            `json:"name"`
-				ContainerPort    int               `json:"container_port"`
-				Env              map[string]string `json:"env"`
-				ProdHost         string            `json:"prod_host"`
-				TraefikEntrypnts string            `json:"traefik_entrypoints"`
-				ComposeTemplate  string            `json:"compose_template"`
-				DeployStrategy   string            `json:"deploy_strategy"`
-				Enabled          bool              `json:"enabled"`
+				Name             *string            `json:"name"`
+				ContainerPort    *int               `json:"container_port"`
+				Env              *map[string]string `json:"env"`
+				ProdHost         *string            `json:"prod_host"`
+				TraefikEntrypnts *string            `json:"traefik_entrypoints"`
+				ComposeTemplate  *string            `json:"compose_template"`
+				DeployStrategy   *string            `json:"deploy_strategy"`
+				Enabled          *bool              `json:"enabled"`
 			}
 			if err := readJSON(c, &req, 1<<20); err != nil {
 				writeError(c, http.StatusBadRequest, "invalid json")
@@ -862,25 +862,31 @@ func (s *Server) handleAdminServices(c *gin.Context, rest string) {
 				return
 			}
 			patch := *svc
-			if req.Name != "" {
-				patch.Name = req.Name
+			if req.Name != nil {
+				patch.Name = strings.TrimSpace(*req.Name)
 			}
-			if req.ContainerPort != 0 {
-				patch.ContainerPort = req.ContainerPort
+			if req.ContainerPort != nil {
+				patch.ContainerPort = *req.ContainerPort
 			}
 			if req.Env != nil {
-				patch.Env = req.Env
+				patch.Env = *req.Env
 			}
-			patch.ProdHost = req.ProdHost
-			if req.TraefikEntrypnts != "" {
-				patch.TraefikEntrypnts = req.TraefikEntrypnts
+			if req.ProdHost != nil {
+				patch.ProdHost = strings.TrimSpace(*req.ProdHost)
 			}
-			patch.ComposeTemplate = req.ComposeTemplate
-			if strings.TrimSpace(req.DeployStrategy) != "" {
-				patch.DeployStrategy = parseDeployStrategy(req.DeployStrategy)
+			if req.TraefikEntrypnts != nil {
+				patch.TraefikEntrypnts = strings.TrimSpace(*req.TraefikEntrypnts)
 			}
-			patch.UseCompose = true
-			patch.Enabled = req.Enabled
+			if req.ComposeTemplate != nil {
+				patch.ComposeTemplate = *req.ComposeTemplate
+				patch.UseCompose = true
+			}
+			if req.DeployStrategy != nil {
+				patch.DeployStrategy = parseDeployStrategy(*req.DeployStrategy)
+			}
+			if req.Enabled != nil {
+				patch.Enabled = *req.Enabled
+			}
 			updated, err := s.store.UpdateService(r.Context(), serviceID, patch)
 			if err != nil {
 				writeError(c, http.StatusInternalServerError, "update failed")

@@ -1,0 +1,37 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build
+        run: ./mvnw -DskipTests package
+
+      - name: Upload artifact to forge-drop
+        env:
+          FORGE_DROP_URL: ${{ secrets.FORGE_DROP_URL }}
+          FORGE_DROP_TOKEN: ${{ secrets.FORGE_DROP_TOKEN }}
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${FORGE_DROP_TOKEN}" \
+            -F "app=demo-service" \
+            -F "env=prod" \
+            -F "service=api" \
+            -F "slot=main" \
+            -F "repo=${{ gitea.repository }}" \
+            -F "sha=${{ gitea.sha }}" \
+            -F "artifact=@target/app.jar" \
+            "${FORGE_DROP_URL}/api/v1/artifacts/upload"

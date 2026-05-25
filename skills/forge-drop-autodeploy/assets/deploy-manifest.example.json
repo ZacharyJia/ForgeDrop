@@ -1,0 +1,49 @@
+{
+  "settings": {
+    "base_domain": "example.com",
+    "docker_network": "traefik",
+    "named_host_template": "{{.AppKey}}-{{.ServiceKey}}-{{.EnvName}}.{{.BaseDomain}}",
+    "preview_host_template": "{{.AppKey}}-pr{{.PRNumber}}-{{.ServiceKey}}.{{.BaseDomain}}"
+  },
+  "repos": [
+    {
+      "full_name": "acme/demo-service",
+      "webhook_secret": "replace-me"
+    }
+  ],
+  "app": {
+    "app_key": "demo-service",
+    "name": "Demo Service",
+    "envs": [
+      { "name": "prod" },
+      { "name": "staging" },
+      { "name": "preview" }
+    ],
+    "services": [
+      {
+        "service_key": "api",
+        "name": "API",
+        "image": "eclipse-temurin:21-jre",
+        "command": "sh -lc \"java -jar /app/app.jar\"",
+        "container_port": 8080,
+        "env": {
+          "SPRING_PROFILES_ACTIVE": "{{.EnvName}}"
+        },
+        "deploy_strategy": "recreate",
+        "enabled": true,
+        "compose_template": "services:\n  app:\n    image: eclipse-temurin:21-jre\n    command: sh -lc \"java -jar /app/app.jar\"\n    volumes:\n      {{- range $slotKey, $hostPath := .Artifacts }}\n      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}:ro\n      {{- end }}\n    environment:\n      SPRING_PROFILES_ACTIVE: {{.EnvName}}\n      {{- range $key, $value := .Env }}\n      {{$key}}: {{$value}}\n      {{- end }}\n    labels:\n      - traefik.enable=true\n      - traefik.http.routers.{{.RouterName}}.rule=Host(`{{.Host}}`)\n      - traefik.http.routers.{{.RouterName}}.entrypoints={{.EntryPoints}}\n      - traefik.http.routers.{{.RouterName}}.tls=true\n      - traefik.http.routers.{{.RouterName}}.tls.certresolver=le\n      - traefik.http.services.{{.TraefikService}}.loadbalancer.server.port={{.Port}}\n    networks:\n      - {{.Network}}\n    restart: unless-stopped\n\nnetworks:\n  {{.Network}}:\n    external: true\n",
+        "slots": [
+          {
+            "slot_key": "main",
+            "name": "App Jar",
+            "container_path": "/app/app.jar"
+          }
+        ]
+      }
+    ]
+  },
+  "api_token": {
+    "name": "ci-demo-service",
+    "rotate_if_exists": true
+  }
+}

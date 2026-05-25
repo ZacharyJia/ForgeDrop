@@ -2,6 +2,46 @@
 
 本指南描述如何从 0 到 1 配置 forge-drop，并把“CI 上传制品 -> 生成快照 ->（可选）部署 -> 查看状态/日志”的全流程跑通。
 
+## 用 AI 创建自动部署
+
+如果你希望让 AI 直接为一个新项目或现有项目完成 forge-drop 配置，优先使用仓库根目录的 skill 和声明式 CLI：
+
+- skill：`skills/forge-drop-autodeploy/`
+- CLI：`go run ./cmd/forge-dropctl apply --manifest <manifest.json>`
+
+推荐流程：
+
+1. AI 先分析目标项目的构建产物和运行方式
+2. AI 生成 deploy manifest
+3. AI 调用 `forge-dropctl apply` 自动创建或更新配置
+4. AI 再修改项目 CI，把产物上传到 forge-drop
+
+`forge-dropctl apply` 会自动处理这些资源：
+
+- settings
+- repos
+- app
+- named envs
+- services
+- slots
+- API token
+
+示例：
+
+```bash
+FORGE_DROP_SERVER=http://127.0.0.1:8080 \
+FORGE_DROP_USERNAME=admin \
+FORGE_DROP_PASSWORD='secret123' \
+go run ./cmd/forge-dropctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
+```
+
+命令会输出 JSON，便于 AI 继续消费，比如拿到新创建的 `plain_token` 去写 CI secrets。
+
+如果 Agent 需要直接从 forge-drop 读取内置 skill，可访问公开端点：
+
+- `GET /agents/skill`
+- `GET /agents/skill/forge-drop-autodeploy`
+
 ## 核心概念
 
 - App：一个应用（例如一个后端系统）

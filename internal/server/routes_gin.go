@@ -27,6 +27,10 @@ func (s *Server) routes() http.Handler {
 		c.String(http.StatusOK, "ok\n")
 	})
 
+	// Public: embedded agent skills
+	r.GET("/agents/skill", s.handlePublicSkills)
+	r.GET("/agents/skill/:name", s.handlePublicSkills)
+
 	// Public: setup + auth
 	r.POST("/api/v1/setup", requireSetupAllowedGin(s.store), s.handleSetup)
 	r.GET("/api/v1/setup/status", s.handleSetupStatus)

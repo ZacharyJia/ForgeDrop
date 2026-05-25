@@ -25,6 +25,37 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 
 > 管理台 UI 由 `web/` 构建产出到 `web/dist`，并在 Go 二进制中 embed（无需额外 UI 服务）。建议使用 `scripts/build.sh --install` 一次性构建前后端。
 
+## AI Skill 与声明式配置
+
+仓库根目录内置了可直接分发的 skill：
+
+- `skills/forge-drop-autodeploy/`
+
+这个 skill 配合内置 CLI `forge-dropctl` 使用，目标是让 AI 可以直接为新项目或存量项目生成自动部署配置，而不是手工点很多管理台表单。
+
+典型流程：
+
+1. AI 分析项目，决定制品类型、运行镜像、启动命令和 slot
+2. AI 生成一份 deploy manifest JSON
+3. AI 调用 `forge-dropctl apply` 自动创建/更新 repo、app、env、service、slot、CI token
+4. AI 再去修改目标项目的 CI，把制品上传到 forge-drop
+
+示例命令：
+
+```bash
+FORGE_DROP_SERVER=http://127.0.0.1:8080 \
+FORGE_DROP_USERNAME=admin \
+FORGE_DROP_PASSWORD='secret123' \
+go run ./cmd/forge-dropctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
+```
+
+相关文件：
+
+- skill 入口：`skills/forge-drop-autodeploy/SKILL.md`
+- manifest 示例：`skills/forge-drop-autodeploy/assets/deploy-manifest.example.json`
+- CI 示例：`skills/forge-drop-autodeploy/assets/forgejo-actions-upload.yml`
+- 公开读取：`GET /agents/skill` 或 `GET /agents/skill/forge-drop-autodeploy`
+
 ## 与 Traefik 配合（推荐）
 
 - 你需要自行运行 Traefik（Docker provider），并确保 `forge-drop` 创建的业务容器加入同一个 network（默认 `traefik`）。
