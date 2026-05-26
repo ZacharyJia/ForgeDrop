@@ -81,6 +81,18 @@ type CreatedToken struct {
 	PlainToken string `json:"plain_token"`
 }
 
+var adminSettingKeys = []string{
+	"base_domain",
+	"named_host_template",
+	"preview_host_template",
+	"docker_network",
+	"traefik_acme_email",
+	"traefik_acme_mode",
+	"traefik_alicloud_region_id",
+	"traefik_wildcard_enabled",
+	"traefik_wildcard_include_apex",
+}
+
 type ServiceCreateRequest struct {
 	ServiceKey    string            `json:"service_key"`
 	Name          string            `json:"name"`
@@ -160,6 +172,34 @@ func (c *Client) Login(ctx context.Context, username, password string) error {
 
 func (c *Client) AdminMe(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodGet, "/api/v1/admin/me", nil, &map[string]any{})
+}
+
+func (c *Client) GetSettings(ctx context.Context) (map[string]string, error) {
+	var raw map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/admin/settings", nil, &raw); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(adminSettingKeys))
+	for _, key := range adminSettingKeys {
+		v, ok := raw[key]
+		if !ok || v == nil {
+			out[key] = ""
+			continue
+		}
+		switch val := v.(type) {
+		case string:
+			out[key] = val
+		case bool:
+			if val {
+				out[key] = "true"
+			} else {
+				out[key] = "false"
+			}
+		default:
+			out[key] = fmt.Sprint(val)
+		}
+	}
+	return out, nil
 }
 
 func (c *Client) UpdateSettings(ctx context.Context, settings map[string]string) error {

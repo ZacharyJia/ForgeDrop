@@ -37,8 +37,10 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 
 1. AI 分析项目，决定制品类型、运行镜像、启动命令和 slot
 2. AI 生成一份 deploy manifest JSON
-3. AI 调用 `forgedrop-ctl apply` 自动创建/更新 repo、app、env、service、slot、token
-4. AI 再去修改目标项目的 CI，把制品上传到 forge-drop
+3. AI 如需先发现可用 app，可先调用 `forgedrop-ctl apps`
+4. AI 如需先读取现有配置，可先调用 `forgedrop-ctl export --app <app_key>` 导出 manifest，再基于它调整
+5. AI 调用 `forgedrop-ctl apply` 自动创建/更新 repo、app、env、service、slot、token
+6. AI 再去修改目标项目的 CI，把制品上传到 forge-drop
 
 示例命令：
 
@@ -50,7 +52,9 @@ EOF
 cat > ~/.forgedrop/auth.json <<'EOF'
 {"token":"fd_admin_token_here"}
 EOF
+./bin/forgedrop-ctl apps
 ./bin/forgedrop-ctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
+./bin/forgedrop-ctl export --app demo --out ./deploy-manifest.json
 ```
 
 相关文件：

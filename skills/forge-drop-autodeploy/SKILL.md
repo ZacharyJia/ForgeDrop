@@ -9,12 +9,14 @@ Use this skill for one specific integration pattern only.
 
 The default integration pattern is:
 
-1. `forgedrop-ctl apply` creates or updates forge-drop resources.
-2. The repo uses Forgejo/Gitea Actions.
-3. CI builds one deployment artifact.
-4. PR builds upload that artifact to `env=preview`.
-5. CI updates the PR comment using `service_url` from `deploy-response.json`.
-6. Pushes to `master` upload the same artifact to `env=prod`.
+1. `forgedrop-ctl apps` can list the currently available apps and their `app_key` values.
+2. `forgedrop-ctl export` can read the current forge-drop app config into a manifest when the repo is already onboarded.
+3. `forgedrop-ctl apply` creates or updates forge-drop resources.
+4. The repo uses Forgejo/Gitea Actions.
+5. CI builds one deployment artifact.
+6. PR builds upload that artifact to `env=preview`.
+7. CI updates the PR comment using `service_url` from `deploy-response.json`.
+8. Pushes to `master` upload the same artifact to `env=prod`.
 
 Do not expand this skill into other deployment styles unless the user explicitly asks.
 

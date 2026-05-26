@@ -8,13 +8,17 @@
 
 - skill：`skills/forge-drop-autodeploy/`
 - CLI：`./bin/forgedrop-ctl apply --manifest <manifest.json>`
+- CLI：`./bin/forgedrop-ctl apps`
+- CLI：`./bin/forgedrop-ctl export --app <app_key> [--out manifest.json]`
 
 推荐流程：
 
 1. AI 先分析目标项目的构建产物和运行方式
-2. AI 生成 deploy manifest
-3. AI 调用 `forgedrop-ctl apply` 自动创建或更新配置
-4. AI 再修改项目 CI，把产物上传到 forge-drop
+2. 如需先发现可用 app，AI 可先调用 `forgedrop-ctl apps`
+3. AI 生成 deploy manifest
+4. 如果仓库已经接过 forge-drop，AI 可先调用 `forgedrop-ctl export --app <app_key>` 拉取当前 manifest
+5. AI 调用 `forgedrop-ctl apply` 自动创建或更新配置
+6. AI 再修改项目 CI，把产物上传到 forge-drop
 
 `forgedrop-ctl apply` 会自动处理这些资源：
 
@@ -36,10 +40,17 @@ EOF
 cat > ~/.forgedrop/auth.json <<'EOF'
 {"token":"fd_admin_token_here"}
 EOF
+./bin/forgedrop-ctl apps
 ./bin/forgedrop-ctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
+./bin/forgedrop-ctl export --app demo --out ./deploy-manifest.json
 ```
 
 命令会输出 JSON，便于 AI 继续消费，比如拿到新创建的 artifact `plain_token` 去写 CI secrets。
+
+`forgedrop-ctl apps` 会返回当前平台可见的 app 列表，便于先拿到 `app_key` 再执行 `export`。
+
+`forgedrop-ctl export` 只导出声明式配置：settings、repos、app、named envs、services、slots。
+它不会导出运行时 ID、明文 token，也不会把 PR/change-set 生成的 preview 子环境写进 manifest。
 
 如果 Agent 需要直接从 forge-drop 读取内置 skill，可访问公开端点：
 
