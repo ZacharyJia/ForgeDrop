@@ -124,6 +124,27 @@ Keep the manifest aligned to this workflow:
 
 Do not introduce webhook-oriented fields into the default path.
 
+## forgedrop-ctl auth model
+
+`forgedrop-ctl` should use an admin token, not platform username/password.
+
+Default local files:
+
+- `~/.forgedrop/config.json`
+- `~/.forgedrop/auth.json`
+
+Expected shapes:
+
+```json
+{"server":"https://deploy.example.com"}
+```
+
+```json
+{"token":"fd_admin_token_here"}
+```
+
+Create the admin token from the platform token page, then let `forgedrop-ctl` read it from `auth.json`.
+
 ## What to avoid
 
 - do not make webhook setup part of the default workflow

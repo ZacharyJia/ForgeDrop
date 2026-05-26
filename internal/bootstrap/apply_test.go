@@ -65,6 +65,18 @@ func TestApplyManifestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx := context.Background()
+	if err := client.Setup(ctx, "admin", "secret123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Login(ctx, "admin", "secret123"); err != nil {
+		t.Fatal(err)
+	}
+	adminToken, err := client.CreateToken(ctx, "ctl-admin", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.SetBearerToken(adminToken.PlainToken)
 
 	enabled := true
 	manifest := &Manifest{
@@ -108,10 +120,8 @@ func TestApplyManifestEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
 	result, err := Apply(ctx, client, manifest, ApplyOptions{
-		Username: "admin",
-		Password: "secret123",
+		Token: adminToken.PlainToken,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -132,8 +142,7 @@ func TestApplyManifestEndToEnd(t *testing.T) {
 
 	manifest.APIToken = nil
 	result, err = Apply(ctx, client, manifest, ApplyOptions{
-		Username: "admin",
-		Password: "secret123",
+		Token: adminToken.PlainToken,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -176,8 +185,7 @@ func TestApplyManifestEndToEnd(t *testing.T) {
 	manifest.App.Services[0].DeployStrategy = ""
 
 	result, err = Apply(ctx, client, manifest, ApplyOptions{
-		Username: "admin",
-		Password: "secret123",
+		Token: adminToken.PlainToken,
 	})
 	if err != nil {
 		t.Fatal(err)

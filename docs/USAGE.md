@@ -29,13 +29,17 @@
 示例：
 
 ```bash
-FORGE_DROP_SERVER=http://127.0.0.1:8080 \
-FORGE_DROP_USERNAME=admin \
-FORGE_DROP_PASSWORD='secret123' \
+mkdir -p ~/.forgedrop
+cat > ~/.forgedrop/config.json <<'EOF'
+{"server":"http://127.0.0.1:8080"}
+EOF
+cat > ~/.forgedrop/auth.json <<'EOF'
+{"token":"fd_admin_token_here"}
+EOF
 ./bin/forgedrop-ctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
 ```
 
-命令会输出 JSON，便于 AI 继续消费，比如拿到新创建的 `plain_token` 去写 CI secrets。
+命令会输出 JSON，便于 AI 继续消费，比如拿到新创建的 artifact `plain_token` 去写 CI secrets。
 
 如果 Agent 需要直接从 forge-drop 读取内置 skill，可访问公开端点：
 

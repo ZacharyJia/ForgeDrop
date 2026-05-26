@@ -57,7 +57,7 @@ Optional CI token request.
 }
 ```
 
-When `rotate_if_exists` is `false` and the token already exists, `forgedrop-ctl apply` fails because forge-drop cannot reveal the previous plain token again.
+When `rotate_if_exists` is `false` and the token already exists, `forgedrop-ctl apply` fails because forge-drop cannot reveal the previous plain token again. This token is meant for artifact upload in CI, not for `forgedrop-ctl` admin authentication.
 
 ## Service fields
 

@@ -31,7 +31,7 @@ func Migrate(ctx context.Context, sqlDB *sql.DB) error {
 	return nil
 }
 
-const latestSchemaVersion = 5
+const latestSchemaVersion = 6
 
 func applyMigration(ctx context.Context, sqlDB *sql.DB, version int) error {
 	tx, err := sqlDB.BeginTx(ctx, nil)
@@ -59,6 +59,10 @@ func applyMigration(ctx context.Context, sqlDB *sql.DB, version int) error {
 		}
 	case 5:
 		if err := migrationV5(ctx, tx); err != nil {
+			return err
+		}
+	case 6:
+		if err := migrationV6(ctx, tx); err != nil {
 			return err
 		}
 	default:
@@ -255,6 +259,18 @@ func migrationV5(ctx context.Context, tx *sql.Tx) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS uq_env_preview_repo_change_set
 			ON envs(app_id, kind, name, repo_id, change_set)
 			WHERE deleted_at IS NULL AND kind='preview' AND change_set IS NOT NULL AND change_set <> ''`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.ExecContext(ctx, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrationV6(ctx context.Context, tx *sql.Tx) error {
+	stmts := []string{
+		`ALTER TABLE api_tokens ADD COLUMN scope TEXT NOT NULL DEFAULT 'artifact'`,
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s); err != nil {

@@ -108,6 +108,7 @@ type Session struct {
 type APIToken struct {
 	ID        string
 	Name      string
+	Scope     string
 	Prefix    string
 	TokenHash []byte
 	CreatedAt time.Time
@@ -350,15 +351,25 @@ type NewToken struct {
 	Prefix  string
 }
 
-func (s *Store) CreateAPIToken(ctx context.Context, name string, plaintextToken string) (*APIToken, error) {
+func normalizeTokenScope(scope string) string {
+	switch strings.TrimSpace(strings.ToLower(scope)) {
+	case "admin":
+		return "admin"
+	default:
+		return "artifact"
+	}
+}
+
+func (s *Store) CreateAPIToken(ctx context.Context, name, scope, plaintextToken string) (*APIToken, error) {
 	id, err := ids.New()
 	if err != nil {
 		return nil, err
 	}
 	prefix := TokenPrefix(plaintextToken)
 	tokenHash := TokenHash(plaintextToken)
-	if _, err := s.sql.ExecContext(ctx, `INSERT INTO api_tokens(id, name, prefix, token_hash, created_at) VALUES(?,?,?,?, datetime('now'))`,
-		id, name, prefix, tokenHash); err != nil {
+	scope = normalizeTokenScope(scope)
+	if _, err := s.sql.ExecContext(ctx, `INSERT INTO api_tokens(id, name, scope, prefix, token_hash, created_at) VALUES(?,?,?,?,?, datetime('now'))`,
+		id, name, scope, prefix, tokenHash); err != nil {
 		return nil, err
 	}
 	return s.GetAPITokenByID(ctx, id)
@@ -368,8 +379,8 @@ func (s *Store) GetAPITokenByID(ctx context.Context, id string) (*APIToken, erro
 	var t APIToken
 	var createdAt string
 	var revokedAt sql.NullString
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, name, prefix, token_hash, created_at, revoked_at FROM api_tokens WHERE id=?`, id).
-		Scan(&t.ID, &t.Name, &t.Prefix, &t.TokenHash, &createdAt, &revokedAt); err != nil {
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, name, scope, prefix, token_hash, created_at, revoked_at FROM api_tokens WHERE id=?`, id).
+		Scan(&t.ID, &t.Name, &t.Scope, &t.Prefix, &t.TokenHash, &createdAt, &revokedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -387,11 +398,12 @@ func (s *Store) GetAPITokenByID(ctx context.Context, id string) (*APIToken, erro
 		}
 		t.RevokedAt = &rt
 	}
+	t.Scope = normalizeTokenScope(t.Scope)
 	return &t, nil
 }
 
 func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT id, name, prefix, token_hash, created_at, revoked_at FROM api_tokens ORDER BY created_at DESC`)
+	rows, err := s.sql.QueryContext(ctx, `SELECT id, name, scope, prefix, token_hash, created_at, revoked_at FROM api_tokens ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +413,7 @@ func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
 		var t APIToken
 		var createdAt string
 		var revokedAt sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &t.Prefix, &t.TokenHash, &createdAt, &revokedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Scope, &t.Prefix, &t.TokenHash, &createdAt, &revokedAt); err != nil {
 			return nil, err
 		}
 		ct, _ := parseSQLiteTime(createdAt)
@@ -410,6 +422,7 @@ func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
 			rt, _ := parseSQLiteTime(revokedAt.String)
 			t.RevokedAt = &rt
 		}
+		t.Scope = normalizeTokenScope(t.Scope)
 		out = append(out, t)
 	}
 	return out, rows.Err()
@@ -425,8 +438,8 @@ func (s *Store) FindAPITokenByPlaintext(ctx context.Context, token string) (*API
 	var t APIToken
 	var createdAt string
 	var revokedAt sql.NullString
-	if err := s.sql.QueryRowContext(ctx, `SELECT id, name, prefix, token_hash, created_at, revoked_at FROM api_tokens WHERE token_hash=?`, h).
-		Scan(&t.ID, &t.Name, &t.Prefix, &t.TokenHash, &createdAt, &revokedAt); err != nil {
+	if err := s.sql.QueryRowContext(ctx, `SELECT id, name, scope, prefix, token_hash, created_at, revoked_at FROM api_tokens WHERE token_hash=?`, h).
+		Scan(&t.ID, &t.Name, &t.Scope, &t.Prefix, &t.TokenHash, &createdAt, &revokedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -438,6 +451,7 @@ func (s *Store) FindAPITokenByPlaintext(ctx context.Context, token string) (*API
 		rt, _ := parseSQLiteTime(revokedAt.String)
 		t.RevokedAt = &rt
 	}
+	t.Scope = normalizeTokenScope(t.Scope)
 	if t.RevokedAt != nil {
 		return nil, ErrNotFound
 	}

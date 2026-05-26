@@ -219,6 +219,7 @@ func apiTokenJSON(t *db.APIToken) map[string]any {
 	out := map[string]any{
 		"id":         t.ID,
 		"name":       t.Name,
+		"scope":      t.Scope,
 		"prefix":     t.Prefix,
 		"created_at": t.CreatedAt.UTC().Format(time.RFC3339Nano),
 		"revoked_at": nil,
@@ -400,9 +401,21 @@ func (s *Server) handleLogout(c *gin.Context) {
 
 func (s *Server) handleAdminMe(c *gin.Context) {
 	r := c.Request
+	if tokenID := tokenIDFromContext(r.Context()); tokenID != nil {
+		tok, err := s.store.GetAPITokenByID(r.Context(), *tokenID)
+		if err != nil {
+			writeError(c, http.StatusUnauthorized, "invalid token")
+			return
+		}
+		c.JSON(http.StatusOK, map[string]any{
+			"id":       tok.ID,
+			"username": tok.Name,
+		})
+		return
+	}
 	uid := userIDFromContext(r.Context())
 	if uid == nil {
-		writeError(c, http.StatusUnauthorized, "missing session")
+		writeError(c, http.StatusUnauthorized, "missing auth")
 		return
 	}
 	u, err := s.store.GetUserByID(r.Context(), *uid)
@@ -488,7 +501,8 @@ func (s *Server) handleAdminTokens(c *gin.Context, rest string) {
 		return
 	case r.Method == "POST" && rest == "":
 		var req struct {
-			Name string `json:"name"`
+			Name  string `json:"name"`
+			Scope string `json:"scope"`
 		}
 		if err := readJSON(c, &req, 1<<20); err != nil {
 			writeError(c, http.StatusBadRequest, "invalid json")
@@ -499,12 +513,20 @@ func (s *Server) handleAdminTokens(c *gin.Context, rest string) {
 			writeError(c, http.StatusBadRequest, "name required")
 			return
 		}
+		req.Scope = strings.TrimSpace(strings.ToLower(req.Scope))
+		if req.Scope == "" {
+			req.Scope = "artifact"
+		}
+		if req.Scope != "artifact" && req.Scope != "admin" {
+			writeError(c, http.StatusBadRequest, "scope must be artifact or admin")
+			return
+		}
 		plain, err := auth.NewToken(32)
 		if err != nil {
 			writeError(c, http.StatusInternalServerError, "token failed")
 			return
 		}
-		t, err := s.store.CreateAPIToken(r.Context(), req.Name, plain)
+		t, err := s.store.CreateAPIToken(r.Context(), req.Name, req.Scope, plain)
 		if err != nil {
 			writeError(c, http.StatusInternalServerError, "create failed")
 			return

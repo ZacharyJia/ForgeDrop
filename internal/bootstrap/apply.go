@@ -8,8 +8,7 @@ import (
 )
 
 type ApplyOptions struct {
-	Username string
-	Password string
+	Token string
 }
 
 type ApplyResult struct {
@@ -122,22 +121,15 @@ func Apply(ctx context.Context, client *Client, manifest *Manifest, opts ApplyOp
 }
 
 func ensureAuthenticated(ctx context.Context, client *Client, opts ApplyOptions) error {
-	opts.Username = strings.TrimSpace(opts.Username)
-	if opts.Username == "" || opts.Password == "" {
-		return fmt.Errorf("username and password are required")
+	if client == nil {
+		return fmt.Errorf("client is required")
 	}
-
-	status, err := client.SetupStatus(ctx)
-	if err != nil {
-		return err
+	client.SetBearerToken(opts.Token)
+	if opts.Token == "" {
+		return fmt.Errorf("token is required")
 	}
-	if status.Allowed {
-		if err := client.Setup(ctx, opts.Username, opts.Password); err != nil {
-			return fmt.Errorf("initial setup failed: %w", err)
-		}
-	}
-	if err := client.Login(ctx, opts.Username, opts.Password); err != nil {
-		return fmt.Errorf("login failed: %w", err)
+	if err := client.AdminMe(ctx); err != nil {
+		return fmt.Errorf("admin token check failed: %w", err)
 	}
 	return nil
 }
@@ -380,7 +372,7 @@ func ensureToken(ctx context.Context, client *Client, spec APITokenSpec) (*Apply
 		if err := client.RevokeToken(ctx, token.ID); err != nil {
 			return nil, err
 		}
-		created, err := client.CreateToken(ctx, spec.Name)
+		created, err := client.CreateToken(ctx, spec.Name, "artifact")
 		if err != nil {
 			return nil, err
 		}
@@ -392,7 +384,7 @@ func ensureToken(ctx context.Context, client *Client, spec APITokenSpec) (*Apply
 		}, nil
 	}
 
-	created, err := client.CreateToken(ctx, spec.Name)
+	created, err := client.CreateToken(ctx, spec.Name, "artifact")
 	if err != nil {
 		return nil, err
 	}

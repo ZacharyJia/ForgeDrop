@@ -6,6 +6,7 @@ import { useToast } from "../toast";
 export function TokensPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
+  const [scope, setScope] = useState<"artifact" | "admin">("artifact");
   const [newToken, setNewToken] = useState<string | null>(null);
   const toast = useToast();
   
@@ -16,11 +17,12 @@ export function TokensPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: () => api.createToken(name),
+    mutationFn: () => api.createToken(name, scope),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["tokens"] });
       setNewToken(data.plain_token);
       setName("");
+      setScope("artifact");
       toast.success("令牌已创建（请立即复制明文）");
     },
     onError: (e) => toast.error(String(e), "创建失败"),
@@ -53,8 +55,8 @@ export function TokensPage() {
     <div className="tokens-page">
       <div className="page-header">
         <div>
-          <h1>API 令牌</h1>
-          <p className="section-desc">用于 CI 上传制品与自动部署触发。</p>
+          <h1>访问令牌</h1>
+          <p className="section-desc">用于 CI 上传制品，或供 forgedrop-ctl 访问管理接口。</p>
         </div>
         <button onClick={() => setShowCreate(true)} className="btn-primary">
           + 创建令牌
@@ -66,7 +68,7 @@ export function TokensPage() {
       {showCreate && !newToken && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>创建 API 令牌</h2>
+            <h2>创建访问令牌</h2>
             <form onSubmit={handleCreate}>
               <div className="form-group">
                 <label>令牌名称</label>
@@ -79,6 +81,16 @@ export function TokensPage() {
                 />
                 <p className="help-text">
                   用于区分用途的备注名称
+                </p>
+              </div>
+              <div className="form-group">
+                <label>令牌用途</label>
+                <select value={scope} onChange={(e) => setScope(e.target.value as "artifact" | "admin")}>
+                  <option value="artifact">Artifact 上传</option>
+                  <option value="admin">forgedrop-ctl 管理</option>
+                </select>
+                <p className="help-text">
+                  `Artifact 上传` 仅用于 `/api/v1/artifacts/upload`。`forgedrop-ctl 管理` 用于命令行调用管理接口。
                 </p>
               </div>
               {createMutation.error && (
@@ -148,6 +160,14 @@ export function TokensPage() {
                 <strong>前缀：</strong> <code>{token.prefix}...</code>
               </div>
               <div className="info-item">
+                <strong>用途：</strong>{" "}
+                {token.scope === "admin" ? (
+                  <span className="badge">forgedrop-ctl</span>
+                ) : (
+                  <span className="badge">artifact</span>
+                )}
+              </div>
+              <div className="info-item">
                 <strong>状态：</strong>{" "}
                 {token.revoked_at ? (
                   <span className="badge badge-disabled">已撤销</span>
@@ -168,7 +188,7 @@ export function TokensPage() {
 
       {tokens?.length === 0 && (
         <div className="empty-state">
-          <p>暂无 API 令牌。</p>
+          <p>暂无访问令牌。</p>
           <p className="muted">创建令牌后，CI 才能上传制品（artifact）。</p>
         </div>
       )}

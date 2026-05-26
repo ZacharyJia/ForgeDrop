@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"forge-drop/internal/bootstrap"
@@ -36,12 +38,11 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `forgedrop-ctl
 
 Usage:
-  forgedrop-ctl apply --server URL --username USER --password PASS --manifest FILE
+  forgedrop-ctl apply --manifest FILE [--config FILE] [--auth FILE]
 
-Environment variables:
-  FORGE_DROP_SERVER
-  FORGE_DROP_USERNAME
-  FORGE_DROP_PASSWORD
+Default config files:
+  ~/.forgedrop/config.json
+  ~/.forgedrop/auth.json
 `)
 }
 
@@ -49,15 +50,17 @@ func runApply(args []string) error {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 
-	serverURL := envOrDefault("FORGE_DROP_SERVER", "")
-	username := envOrDefault("FORGE_DROP_USERNAME", "")
-	password := envOrDefault("FORGE_DROP_PASSWORD", "")
+	configPath := ""
+	authPath := ""
+	serverURL := ""
+	token := ""
 	manifestPath := ""
 	timeout := 30 * time.Second
 
-	fs.StringVar(&serverURL, "server", serverURL, "forge-drop base URL, e.g. http://127.0.0.1:8080")
-	fs.StringVar(&username, "username", username, "admin username")
-	fs.StringVar(&password, "password", password, "admin password")
+	fs.StringVar(&configPath, "config", defaultConfigPath("config.json"), "path to config.json")
+	fs.StringVar(&authPath, "auth", defaultConfigPath("auth.json"), "path to auth.json")
+	fs.StringVar(&serverURL, "server", serverURL, "forge-drop base URL, overrides config.json")
+	fs.StringVar(&token, "token", token, "admin token, overrides auth.json")
 	fs.StringVar(&manifestPath, "manifest", manifestPath, "path to deploy manifest JSON")
 	fs.DurationVar(&timeout, "timeout", timeout, "request timeout")
 
@@ -66,6 +69,26 @@ func runApply(args []string) error {
 	}
 	if manifestPath == "" {
 		return fmt.Errorf("--manifest is required")
+	}
+	fileConfig, err := loadCLIConfig(configPath)
+	if err != nil {
+		return err
+	}
+	fileAuth, err := loadCLIAuth(authPath)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(serverURL) == "" {
+		serverURL = fileConfig.Server
+	}
+	if strings.TrimSpace(token) == "" {
+		token = fileAuth.Token
+	}
+	if strings.TrimSpace(serverURL) == "" {
+		return fmt.Errorf("server is required; set it in %s or pass --server", configPath)
+	}
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("token is required; set it in %s or pass --token", authPath)
 	}
 
 	manifest, err := bootstrap.LoadManifest(manifestPath)
@@ -81,8 +104,7 @@ func runApply(args []string) error {
 	defer cancel()
 
 	result, err := bootstrap.Apply(ctx, client, manifest, bootstrap.ApplyOptions{
-		Username: username,
-		Password: password,
+		Token: token,
 	})
 	if err != nil {
 		return err
@@ -93,9 +115,50 @@ func runApply(args []string) error {
 	return enc.Encode(result)
 }
 
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+type cliConfig struct {
+	Server string `json:"server"`
+}
+
+type cliAuth struct {
+	Token string `json:"token"`
+}
+
+func defaultConfigPath(name string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return filepath.Join(".forgedrop", name)
 	}
-	return fallback
+	return filepath.Join(home, ".forgedrop", name)
+}
+
+func loadCLIConfig(path string) (*cliConfig, error) {
+	var cfg cliConfig
+	if err := loadJSONFile(path, &cfg); err != nil {
+		return nil, err
+	}
+	cfg.Server = strings.TrimSpace(cfg.Server)
+	return &cfg, nil
+}
+
+func loadCLIAuth(path string) (*cliAuth, error) {
+	var cfg cliAuth
+	if err := loadJSONFile(path, &cfg); err != nil {
+		return nil, err
+	}
+	cfg.Token = strings.TrimSpace(cfg.Token)
+	return &cfg, nil
+}
+
+func loadJSONFile(path string, dst any) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, dst)
 }

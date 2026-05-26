@@ -15,6 +15,7 @@ import (
 type Client struct {
 	baseURL string
 	http    *http.Client
+	token   string
 }
 
 type SetupStatus struct {
@@ -71,6 +72,7 @@ type Slot struct {
 type Token struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
+	Scope  string `json:"scope"`
 	Prefix string `json:"prefix"`
 }
 
@@ -130,6 +132,10 @@ func NewClient(baseURL string) (*Client, error) {
 	}, nil
 }
 
+func (c *Client) SetBearerToken(token string) {
+	c.token = strings.TrimSpace(token)
+}
+
 func (c *Client) SetupStatus(ctx context.Context) (*SetupStatus, error) {
 	var out SetupStatus
 	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/setup/status", nil, &out); err != nil {
@@ -150,6 +156,10 @@ func (c *Client) Login(ctx context.Context, username, password string) error {
 		"username": username,
 		"password": password,
 	}, nil)
+}
+
+func (c *Client) AdminMe(ctx context.Context) error {
+	return c.doJSON(ctx, http.MethodGet, "/api/v1/admin/me", nil, &map[string]any{})
 }
 
 func (c *Client) UpdateSettings(ctx context.Context, settings map[string]string) error {
@@ -275,10 +285,11 @@ func (c *Client) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, nil
 }
 
-func (c *Client) CreateToken(ctx context.Context, name string) (*CreatedToken, error) {
+func (c *Client) CreateToken(ctx context.Context, name, scope string) (*CreatedToken, error) {
 	var out CreatedToken
 	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/admin/tokens", map[string]string{
-		"name": name,
+		"name":  name,
+		"scope": scope,
 	}, &out); err != nil {
 		return nil, err
 	}
@@ -307,6 +318,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

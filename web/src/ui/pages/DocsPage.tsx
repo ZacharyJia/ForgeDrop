@@ -85,7 +85,7 @@ export function DocsPage() {
                   <strong>环境</strong>：在 App 详情里创建命名环境（至少创建 <code>prod</code>）
                 </li>
                 <li>
-                  <strong>API 令牌</strong>：进入 <Link to="/tokens">API 令牌</Link> 创建 token，给 CI 上传制品使用
+                  <strong>访问令牌</strong>：进入 <Link to="/tokens">访问令牌</Link> 页面创建 token。`artifact` 用于 CI 上传制品，`admin` 用于 `forgedrop-ctl`
                 </li>
               </ol>
             </div>

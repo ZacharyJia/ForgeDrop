@@ -104,7 +104,7 @@ function Layout({
     if (path === "/") return "概览";
     if (path.startsWith("/apps")) return "应用";
     if (path.startsWith("/repos")) return "仓库";
-    if (path.startsWith("/tokens")) return "API 令牌";
+    if (path.startsWith("/tokens")) return "访问令牌";
     if (path.startsWith("/settings")) return "设置";
     if (path.startsWith("/docs")) return "文档";
     if (path.startsWith("/services")) return "服务";
@@ -194,7 +194,7 @@ function Layout({
               className={({ isActive }) => (isActive ? "active" : undefined)}
               onClick={() => setMobileNavOpen(false)}
             >
-              API 令牌
+              访问令牌
             </NavLink>
           </li>
           <li>

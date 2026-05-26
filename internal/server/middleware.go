@@ -101,7 +101,31 @@ func (s *Server) requireSessionGin() gin.HandlerFunc {
 	}
 }
 
-func (s *Server) requireBearerTokenGin() gin.HandlerFunc {
+func (s *Server) requireAdminAuthGin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if token, ok := httpx.BearerToken(c.Request); ok && token != "" {
+			t, err := s.store.FindAPITokenByPlaintext(c.Request.Context(), token)
+			if err != nil {
+				writeError(c, http.StatusUnauthorized, "invalid token")
+				c.Abort()
+				return
+			}
+			if t.RevokedAt != nil || t.Scope != "admin" {
+				writeError(c, http.StatusUnauthorized, "invalid token")
+				c.Abort()
+				return
+			}
+			ctx := context.WithValue(c.Request.Context(), ctxTokenID, t.ID)
+			ctx = context.WithValue(ctx, ctxAuthKind, "token")
+			c.Request = c.Request.WithContext(ctx)
+			c.Next()
+			return
+		}
+		s.requireSessionGin()(c)
+	}
+}
+
+func (s *Server) requireArtifactTokenGin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, ok := httpx.BearerToken(c.Request)
 		if !ok || token == "" {
@@ -115,8 +139,8 @@ func (s *Server) requireBearerTokenGin() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if t.RevokedAt != nil {
-			writeError(c, http.StatusUnauthorized, "revoked token")
+		if t.RevokedAt != nil || t.Scope != "artifact" {
+			writeError(c, http.StatusUnauthorized, "invalid token")
 			c.Abort()
 			return
 		}

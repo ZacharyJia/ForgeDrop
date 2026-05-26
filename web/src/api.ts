@@ -72,6 +72,7 @@ export interface Repo {
 export interface APIToken {
   id: string;
   name: string;
+  scope: 'artifact' | 'admin';
   prefix: string;
   created_at: string;
   revoked_at?: string;
@@ -423,10 +424,10 @@ export const api = {
     return apiFetch('/api/v1/admin/tokens');
   },
 
-  async createToken(name: string): Promise<{ token: APIToken; plain_token: string }> {
+  async createToken(name: string, scope: 'artifact' | 'admin'): Promise<{ token: APIToken; plain_token: string }> {
     return apiFetch('/api/v1/admin/tokens', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, scope }),
     });
   },
 

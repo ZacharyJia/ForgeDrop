@@ -451,7 +451,7 @@ export function SettingsPage() {
             <li>配置 Traefik（Docker provider）并加入同一网络</li>
             <li>添加仓库并配置 Webhook</li>
             <li>创建应用和服务</li>
-            <li>创建 API 令牌用于 CI 集成</li>
+            <li>创建访问令牌用于 CI 集成或 forgedrop-ctl 管理</li>
           </ol>
         </div>
       </div>

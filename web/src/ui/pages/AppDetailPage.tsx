@@ -370,7 +370,7 @@ export function AppDetailPage() {
             <li>创建服务与环境</li>
             <li>进入服务详情页创建槽位（挂载路径）</li>
             <li>进入环境详情页上传制品并部署（推荐）</li>
-            <li>（可选）在 <Link to="/tokens">API 令牌</Link> 页面创建令牌，用于 CI 上传</li>
+            <li>（可选）在 <Link to="/tokens">访问令牌</Link> 页面创建 artifact 令牌，用于 CI 上传</li>
           </ol>
           <p className="muted">
             CI 集成示例请参考文档。

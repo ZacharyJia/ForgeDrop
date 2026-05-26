@@ -37,15 +37,19 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 
 1. AI 分析项目，决定制品类型、运行镜像、启动命令和 slot
 2. AI 生成一份 deploy manifest JSON
-3. AI 调用 `forgedrop-ctl apply` 自动创建/更新 repo、app、env、service、slot、CI token
+3. AI 调用 `forgedrop-ctl apply` 自动创建/更新 repo、app、env、service、slot、token
 4. AI 再去修改目标项目的 CI，把制品上传到 forge-drop
 
 示例命令：
 
 ```bash
-FORGE_DROP_SERVER=http://127.0.0.1:8080 \
-FORGE_DROP_USERNAME=admin \
-FORGE_DROP_PASSWORD='secret123' \
+mkdir -p ~/.forgedrop
+cat > ~/.forgedrop/config.json <<'EOF'
+{"server":"http://127.0.0.1:8080"}
+EOF
+cat > ~/.forgedrop/auth.json <<'EOF'
+{"token":"fd_admin_token_here"}
+EOF
 ./bin/forgedrop-ctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
 ```
 
@@ -53,7 +57,7 @@ FORGE_DROP_PASSWORD='secret123' \
 
 - skill 入口：`skills/forge-drop-autodeploy/SKILL.md`
 - manifest 示例：`skills/forge-drop-autodeploy/assets/deploy-manifest.example.json`
-- CI 示例：`skills/forge-drop-autodeploy/assets/forgejo-actions-upload.yml`
+- CI 示例：`skills/forge-drop-autodeploy/assets/forgejo-actions-autodeploy.yml`
 - 公开读取：`GET /agents/skill` 或 `GET /agents/skill/forge-drop-autodeploy`
 
 ## 与 Traefik 配合（推荐）

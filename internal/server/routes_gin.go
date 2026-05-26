@@ -37,10 +37,10 @@ func (s *Server) routes() http.Handler {
 	r.POST("/api/v1/auth/login", s.handleLogin)
 	r.POST("/api/v1/auth/logout", s.handleLogout)
 
-	// Admin APIs: session cookie required.
+	// Admin APIs: session cookie or admin bearer token required.
 	admin := r.Group("/api/v1/admin")
 	admin.Use(noStoreGin())
-	admin.Use(s.requireSessionGin())
+	admin.Use(s.requireAdminAuthGin())
 
 	admin.GET("/me", s.handleAdminMe)
 	admin.GET("/settings", func(c *gin.Context) { s.handleAdminSettings(c, "") })
@@ -106,8 +106,8 @@ func (s *Server) routes() http.Handler {
 	})
 
 	// Artifact upload (token)
-	r.POST("/api/v1/artifacts/upload", s.requireBearerTokenGin(), noStoreGin(), s.handleArtifactUpload)
-	r.POST("/api/v1/artifacts/upload-batch", s.requireBearerTokenGin(), noStoreGin(), s.handleArtifactUploadBatch)
+	r.POST("/api/v1/artifacts/upload", s.requireArtifactTokenGin(), noStoreGin(), s.handleArtifactUpload)
+	r.POST("/api/v1/artifacts/upload-batch", s.requireArtifactTokenGin(), noStoreGin(), s.handleArtifactUploadBatch)
 
 	// Webhooks
 	r.POST("/webhooks/forgejo", s.handleForgejoWebhook)
