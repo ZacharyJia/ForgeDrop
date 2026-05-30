@@ -715,6 +715,35 @@ func (s *Server) handleAdminApps(c *gin.Context, rest string) {
 			}
 			c.JSON(http.StatusOK, map[string]any{"app": appJSON(app), "services": outSvcs, "envs": outEnvs})
 			return
+		case "PUT":
+			var req struct {
+				Name   *string `json:"name"`
+				AppKey *string `json:"app_key"`
+				ID     *string `json:"id"`
+			}
+			if err := readJSON(c, &req, 1<<20); err != nil {
+				writeError(c, http.StatusBadRequest, "invalid json")
+				return
+			}
+			if req.AppKey != nil || req.ID != nil {
+				writeError(c, http.StatusBadRequest, "app_key/id are immutable")
+				return
+			}
+			if req.Name == nil || strings.TrimSpace(*req.Name) == "" {
+				writeError(c, http.StatusBadRequest, "name required")
+				return
+			}
+			app, err := s.store.UpdateAppName(r.Context(), appID, strings.TrimSpace(*req.Name))
+			if err != nil {
+				if errors.Is(err, db.ErrNotFound) {
+					writeError(c, http.StatusNotFound, "not found")
+					return
+				}
+				writeError(c, http.StatusInternalServerError, "update failed")
+				return
+			}
+			c.JSON(http.StatusOK, appJSON(app))
+			return
 		case "DELETE":
 			if err := s.store.DeleteApp(r.Context(), appID); err != nil {
 				writeError(c, http.StatusInternalServerError, "delete failed")

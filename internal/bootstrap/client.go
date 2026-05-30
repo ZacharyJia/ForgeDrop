@@ -250,6 +250,16 @@ func (c *Client) CreateApp(ctx context.Context, appKey, name string) (*App, erro
 	return &out, nil
 }
 
+func (c *Client) UpdateAppName(ctx context.Context, appID, name string) (*App, error) {
+	var out App
+	if err := c.doJSON(ctx, http.MethodPut, "/api/v1/admin/apps/"+appID, map[string]string{
+		"name": name,
+	}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) ListEnvs(ctx context.Context, appID string) ([]Env, error) {
 	var out []Env
 	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/admin/apps/"+appID+"/envs", nil, &out); err != nil {

@@ -1,0 +1,102 @@
+name: Build Binaries
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build web assets
+        working-directory: web
+        run: npm run build
+
+      - name: Build binaries
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ext=""
+          if [ "$GOOS" = "windows" ]; then
+            ext=".exe"
+          fi
+          go build -trimpath -ldflags="-s -w" -o "dist/forge-drop${ext}" ./cmd/forge-drop
+          go build -trimpath -ldflags="-s -w" -o "dist/forgedrop-ctl${ext}" ./cmd/forgedrop-ctl
+
+      - name: Package archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          pkg="forge-drop-${GOOS}-${GOARCH}"
+          mkdir -p "package/${pkg}"
+          cp README.md "package/${pkg}/"
+          if [ "$GOOS" = "windows" ]; then
+            cp dist/forge-drop.exe "package/${pkg}/forge-drop.exe"
+            cp dist/forgedrop-ctl.exe "package/${pkg}/forgedrop-ctl.exe"
+            (cd package && zip -r "../${pkg}.zip" "${pkg}")
+          else
+            cp dist/forge-drop "package/${pkg}/forge-drop"
+            cp dist/forgedrop-ctl "package/${pkg}/forgedrop-ctl"
+            tar -C package -czf "${pkg}.tar.gz" "${pkg}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-drop-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            forge-drop-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+            forge-drop-${{ matrix.goos }}-${{ matrix.goarch }}.zip
+          if-no-files-found: ignore

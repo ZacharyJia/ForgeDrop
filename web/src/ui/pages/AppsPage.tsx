@@ -6,6 +6,7 @@ import { useToast } from "../toast";
 
 export function AppsPage() {
   const [showCreate, setShowCreate] = useState(false);
+  const [editingApp, setEditingApp] = useState<{ id: string; name: string } | null>(null);
   const [appKey, setAppKey] = useState("");
   const [name, setName] = useState("");
   const toast = useToast();
@@ -37,9 +38,25 @@ export function AppsPage() {
     onError: (e) => toast.error(String(e), "删除失败"),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => api.updateApp(id, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["apps"] });
+      setEditingApp(null);
+      toast.success("应用已更新");
+    },
+    onError: (e) => toast.error(String(e), "更新失败"),
+  });
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     createMutation.mutate();
+  };
+
+  const handleUpdate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingApp) return;
+    updateMutation.mutate(editingApp);
   };
 
   if (isLoading) {
@@ -103,21 +120,63 @@ export function AppsPage() {
         </div>
       )}
 
+      {editingApp && (
+        <div className="modal-overlay" onClick={() => setEditingApp(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>编辑应用</h2>
+            <form onSubmit={handleUpdate}>
+              <div className="form-group">
+                <label>应用标识（只读）</label>
+                <input type="text" value={apps?.find((app) => app.id === editingApp.id)?.app_key || ""} disabled />
+              </div>
+              <div className="form-group">
+                <label>显示名称</label>
+                <input
+                  type="text"
+                  value={editingApp.name}
+                  onChange={(e) => setEditingApp({ ...editingApp, name: e.target.value })}
+                  required
+                />
+              </div>
+              {updateMutation.error && (
+                <div className="error">{String(updateMutation.error)}</div>
+              )}
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setEditingApp(null)}>
+                  取消
+                </button>
+                <button type="submit" className="btn-primary" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? "保存中..." : "保存"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="apps-grid">
         {apps?.map((app) => (
           <div key={app.id} className="app-card">
             <div className="app-card-header">
               <h3>{app.name}</h3>
-              <button
-                className="btn-danger-small"
-                onClick={() => {
-                  if (confirm(`确认删除应用「${app.name}」？`)) {
-                    deleteMutation.mutate(app.id);
-                  }
-                }}
-              >
-                删除
-              </button>
+              <div className="card-actions">
+                <button
+                  className="btn-secondary-small"
+                  onClick={() => setEditingApp({ id: app.id, name: app.name })}
+                >
+                  编辑
+                </button>
+                <button
+                  className="btn-danger-small"
+                  onClick={() => {
+                    if (confirm(`确认删除应用「${app.name}」？`)) {
+                      deleteMutation.mutate(app.id);
+                    }
+                  }}
+                >
+                  删除
+                </button>
+              </div>
             </div>
             <div className="app-card-body">
               <div className="app-key">{app.app_key}</div>

@@ -154,6 +154,17 @@ func TestApplyManifestEndToEnd(t *testing.T) {
 		t.Fatalf("expected unchanged repo on second apply, got %+v", result.Repos[0])
 	}
 
+	manifest.App.Name = "Demo Console"
+	result, err = Apply(ctx, client, manifest, ApplyOptions{
+		Token: adminToken.PlainToken,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.App.Action != "updated" || result.App.Name != "Demo Console" {
+		t.Fatalf("expected app rename to update, got %+v", result.App)
+	}
+
 	repos, err := client.ListRepos(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -167,6 +178,13 @@ func TestApplyManifestEndToEnd(t *testing.T) {
 	}
 	if len(services) != 1 || services[0].ServiceKey != "web" {
 		t.Fatalf("unexpected services: %+v", services)
+	}
+	apps, err := client.ListApps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 1 || apps[0].Name != "Demo Console" {
+		t.Fatalf("unexpected apps after rename: %+v", apps)
 	}
 	if services[0].ContainerPort != 8080 {
 		t.Fatalf("expected initial container port 8080, got %+v", services[0])

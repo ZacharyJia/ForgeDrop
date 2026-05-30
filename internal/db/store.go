@@ -666,6 +666,21 @@ func (s *Store) GetAppByKey(ctx context.Context, appKey string) (*App, error) {
 	return &a, nil
 }
 
+func (s *Store) UpdateAppName(ctx context.Context, id, name string) (*App, error) {
+	res, err := s.sql.ExecContext(ctx, `UPDATE apps SET name=? WHERE id=?`, name, id)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rows == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetAppByID(ctx, id)
+}
+
 func (s *Store) DeleteApp(ctx context.Context, id string) error {
 	_, err := s.sql.ExecContext(ctx, `DELETE FROM apps WHERE id=?`, id)
 	return err

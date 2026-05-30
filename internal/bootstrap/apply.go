@@ -193,7 +193,11 @@ func ensureApp(ctx context.Context, client *Client, spec AppSpec) (*App, string,
 			continue
 		}
 		if app.Name != spec.Name {
-			return nil, "", fmt.Errorf("app %q already exists with name %q; rename it manually or update manifest", spec.AppKey, app.Name)
+			updated, err := client.UpdateAppName(ctx, app.ID, spec.Name)
+			if err != nil {
+				return nil, "", err
+			}
+			return updated, "updated", nil
 		}
 		return &app, "unchanged", nil
 	}

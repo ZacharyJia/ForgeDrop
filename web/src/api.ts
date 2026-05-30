@@ -291,6 +291,13 @@ export const api = {
     });
   },
 
+  async updateApp(appId: string, name: string): Promise<App> {
+    return apiFetch(`/api/v1/admin/apps/${appId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  },
+
   async getApp(appId: string): Promise<{ app: App; services: Service[]; envs: Env[] }> {
     return apiFetch(`/api/v1/admin/apps/${appId}`);
   },
