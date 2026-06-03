@@ -132,8 +132,9 @@ Do not introduce webhook-oriented fields into the default path.
 
 Default local files:
 
-- `~/.forgedrop/config.json`
-- `~/.forgedrop/auth.json`
+- `default` profile: `~/.forgedrop/config.json` + `~/.forgedrop/auth.json`
+- named profile: `~/.forgedrop/profiles/<name>/config.json` + `auth.json`
+- active profile marker: `~/.forgedrop/active-profile`
 
 Expected shapes:
 
@@ -146,6 +147,7 @@ Expected shapes:
 ```
 
 Create the admin token from the platform token page, then let `forgedrop-ctl` read it from `auth.json`.
+If the user mentions multiple ForgeDrop instances, prefer `forgedrop-ctl profile use <name>` or per-command `--profile <name>` instead of rewriting the default files.
 
 ## What to avoid
 

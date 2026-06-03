@@ -33,17 +33,37 @@
 示例：
 
 ```bash
-mkdir -p ~/.forgedrop
-cat > ~/.forgedrop/config.json <<'EOF'
-{"server":"http://127.0.0.1:8080"}
-EOF
-cat > ~/.forgedrop/auth.json <<'EOF'
-{"token":"fd_admin_token_here"}
-EOF
+./bin/forgedrop-ctl profile set default \
+  --server http://127.0.0.1:8080 \
+  --token fd_admin_token_here \
+  --activate
+
 ./bin/forgedrop-ctl apps
 ./bin/forgedrop-ctl apply --manifest ./skills/forge-drop-autodeploy/assets/deploy-manifest.example.json
 ./bin/forgedrop-ctl export --app demo --out ./deploy-manifest.json
 ```
+
+如果你需要在多个 ForgeDrop 实例之间切换，可以使用 profile：
+
+```bash
+./bin/forgedrop-ctl profile set prod \
+  --server https://deploy-prod.example.com \
+  --token fd_prod_token
+
+./bin/forgedrop-ctl profile set staging \
+  --server https://deploy-staging.example.com \
+  --token fd_staging_token
+
+./bin/forgedrop-ctl profile use staging
+./bin/forgedrop-ctl apps
+./bin/forgedrop-ctl export --app demo --profile prod
+```
+
+profile 路径规则：
+
+- `default`: `~/.forgedrop/config.json` + `~/.forgedrop/auth.json`
+- 命名 profile: `~/.forgedrop/profiles/<name>/config.json` + `auth.json`
+- 当前 profile: `~/.forgedrop/active-profile`
 
 命令会输出 JSON，便于 AI 继续消费，比如拿到新创建的 artifact `plain_token` 去写 CI secrets。
 
