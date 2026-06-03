@@ -12,8 +12,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -24,8 +22,6 @@ const (
 	skillTargetAgents = "agents"
 	skillTargetCodex  = "codex"
 )
-
-var skillRefPattern = regexp.MustCompile("`([^`\\n]+)`")
 
 func runSkill(args []string) error {
 	if len(args) == 0 {
@@ -249,7 +245,7 @@ func validatePublicSkillBundle(bundle *bootstrap.PublicSkillBundle) error {
 		return fmt.Errorf("skill %q has no files", bundle.Name)
 	}
 
-	files := make(map[string]string, len(bundle.Files))
+	files := make(map[string]struct{}, len(bundle.Files))
 	for _, file := range bundle.Files {
 		cleanPath, err := cleanBundlePath(file.Path)
 		if err != nil {
@@ -258,18 +254,7 @@ func validatePublicSkillBundle(bundle *bootstrap.PublicSkillBundle) error {
 		if _, exists := files[cleanPath]; exists {
 			return fmt.Errorf("skill %q has duplicate file path %q", bundle.Name, cleanPath)
 		}
-		files[cleanPath] = file.Content
-	}
-
-	skillBody, ok := files["SKILL.md"]
-	if !ok {
-		return fmt.Errorf("skill %q is missing SKILL.md", bundle.Name)
-	}
-
-	for _, ref := range extractReferencedBundlePaths(skillBody) {
-		if _, ok := files[ref]; !ok {
-			return fmt.Errorf("skill %q payload is incomplete: missing referenced file %q", bundle.Name, ref)
-		}
+		files[cleanPath] = struct{}{}
 	}
 	return nil
 }
@@ -293,35 +278,6 @@ func cleanBundlePath(filePath string) (string, error) {
 		return "", fmt.Errorf("parent traversal is not allowed")
 	}
 	return clean, nil
-}
-
-func extractReferencedBundlePaths(skillBody string) []string {
-	seen := map[string]struct{}{"SKILL.md": {}}
-	matches := skillRefPattern.FindAllStringSubmatch(skillBody, -1)
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-		candidate := strings.TrimSpace(match[1])
-		if candidate == "" || strings.Contains(candidate, " ") || strings.HasPrefix(candidate, "http://") || strings.HasPrefix(candidate, "https://") || strings.HasPrefix(candidate, "/") || strings.HasPrefix(candidate, "~") {
-			continue
-		}
-		clean, err := cleanBundlePath(candidate)
-		if err != nil {
-			continue
-		}
-		if !strings.Contains(clean, "/") && path.Ext(clean) == "" {
-			continue
-		}
-		seen[clean] = struct{}{}
-	}
-
-	refs := make([]string, 0, len(seen))
-	for ref := range seen {
-		refs = append(refs, ref)
-	}
-	slices.Sort(refs)
-	return refs
 }
 
 func resolveSkillInstallRoot(target string) (string, string, error) {

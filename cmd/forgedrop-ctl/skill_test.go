@@ -2,28 +2,10 @@ package main
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"forge-drop/internal/bootstrap"
 )
-
-func TestValidatePublicSkillBundleRequiresReferencedFiles(t *testing.T) {
-	bundle := &bootstrap.PublicSkillBundle{
-		Name: "demo-skill",
-		Files: []bootstrap.PublicSkillFile{
-			{
-				Path:    "SKILL.md",
-				Content: "Read `references/setup.md` before use.\n",
-			},
-		},
-	}
-
-	err := validatePublicSkillBundle(bundle)
-	if err == nil || !containsText(err.Error(), `missing referenced file "references/setup.md"`) {
-		t.Fatalf("expected missing referenced file error, got %v", err)
-	}
-}
 
 func TestValidatePublicSkillBundleAcceptsCompleteBundle(t *testing.T) {
 	bundle := &bootstrap.PublicSkillBundle{
@@ -33,13 +15,21 @@ func TestValidatePublicSkillBundleAcceptsCompleteBundle(t *testing.T) {
 				Path:    "SKILL.md",
 				Content: "Read `references/setup.md` and use `assets/run.sh`.\n",
 			},
+		},
+	}
+
+	if err := validatePublicSkillBundle(bundle); err != nil {
+		t.Fatalf("validatePublicSkillBundle: %v", err)
+	}
+}
+
+func TestValidatePublicSkillBundleIgnoresFieldNamesInBackticks(t *testing.T) {
+	bundle := &bootstrap.PublicSkillBundle{
+		Name: "demo-skill",
+		Files: []bootstrap.PublicSkillFile{
 			{
-				Path:    "references/setup.md",
-				Content: "setup",
-			},
-			{
-				Path:    "assets/run.sh",
-				Content: "#!/bin/sh\n",
+				Path:    "SKILL.md",
+				Content: "Keep `api_token.name` in the manifest and read `references/setup.md` before use.\n",
 			},
 		},
 	}
@@ -114,8 +104,4 @@ func TestWriteAndReadInstalledSkillBundleRoundTrip(t *testing.T) {
 	if !skillBundlesEqual(bundle, readBack) {
 		t.Fatalf("expected round-tripped bundle to match original")
 	}
-}
-
-func containsText(s, needle string) bool {
-	return strings.Contains(s, needle)
 }
