@@ -81,6 +81,16 @@ type CreatedToken struct {
 	PlainToken string `json:"plain_token"`
 }
 
+type PublicSkillBundle struct {
+	Name  string            `json:"name"`
+	Files []PublicSkillFile `json:"files"`
+}
+
+type PublicSkillFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
 var adminSettingKeys = []string{
 	"base_domain",
 	"named_host_template",
@@ -348,6 +358,28 @@ func (c *Client) CreateToken(ctx context.Context, name, scope string) (*CreatedT
 
 func (c *Client) RevokeToken(ctx context.Context, tokenID string) error {
 	return c.doJSON(ctx, http.MethodDelete, "/api/v1/admin/tokens/"+tokenID, nil, nil)
+}
+
+func (c *Client) ListPublicSkills(ctx context.Context) ([]PublicSkillBundle, error) {
+	var out struct {
+		Skills []PublicSkillBundle `json:"skills"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, "/agents/skill", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Skills, nil
+}
+
+func (c *Client) GetPublicSkill(ctx context.Context, name string) (*PublicSkillBundle, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("skill name is required")
+	}
+	var out PublicSkillBundle
+	if err := c.doJSON(ctx, http.MethodGet, "/agents/skill/"+url.PathEscape(name), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body any, out any) error {

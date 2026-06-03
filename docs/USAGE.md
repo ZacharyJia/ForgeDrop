@@ -65,6 +65,22 @@ profile 路径规则：
 - 命名 profile: `~/.forgedrop/profiles/<name>/config.json` + `auth.json`
 - 当前 profile: `~/.forgedrop/active-profile`
 
+如果要把 forge-drop 暴露的 skill 安装到本地 Agent，可以直接用：
+
+```bash
+./bin/forgedrop-ctl skill list --profile prod
+./bin/forgedrop-ctl skill install forge-drop-autodeploy
+./bin/forgedrop-ctl skill install forge-drop-autodeploy --target agents
+./bin/forgedrop-ctl skill install --url https://deploy.example.com/agents/skill/forge-drop-autodeploy --target codex
+```
+
+安装行为：
+
+- 不传 `--target` 时，CLI 会在交互式终端提示选择 `~/.agents/skills` 或 `~/.codex/skills`
+- 已存在同名 skill 且内容一致时，返回 `up_to_date`
+- 已存在同名 skill 但内容不同，会提示是否覆盖；非交互场景可传 `--force`
+- 安装完成后，重启对应 Agent / Codex 进程，让新 skill 被重新加载
+
 命令会输出 JSON，便于 AI 继续消费，比如拿到新创建的 artifact `plain_token` 去写 CI secrets。
 
 `forgedrop-ctl apps` 会返回当前平台可见的 app 列表，便于先拿到 `app_key` 再执行 `export`。

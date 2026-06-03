@@ -79,6 +79,21 @@ profile 文件布局：
 - 命名 profile: `~/.forgedrop/profiles/<name>/config.json` + `auth.json`
 - 当前 profile: `~/.forgedrop/active-profile`
 
+如果你希望把实例里公开的 skill 直接安装到本地 Agent，也可以直接用 CLI：
+
+```bash
+./bin/forgedrop-ctl skill list --profile prod
+./bin/forgedrop-ctl skill install forge-drop-autodeploy
+./bin/forgedrop-ctl skill install forge-drop-autodeploy --target codex
+```
+
+说明：
+
+- 不传 `--target` 时，交互式终端会提示你选择安装到 `~/.agents/skills` 还是 `~/.codex/skills`
+- 如果目标位置已经安装过同名 skill，会先比对内容；相同则直接返回 `up_to_date`
+- 如果内容不同，会询问是否覆盖；脚本场景可显式传 `--force`
+- 安装完成后，重启对应 Agent / Codex 进程，让新 skill 生效
+
 相关文件：
 
 - skill 入口：`skills/forge-drop-autodeploy/SKILL.md`

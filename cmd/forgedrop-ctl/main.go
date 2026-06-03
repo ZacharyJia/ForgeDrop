@@ -51,6 +51,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
 			os.Exit(1)
 		}
+	case "skill":
+		if err := runSkill(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
+			os.Exit(1)
+		}
 	case "profile":
 		if err := runProfile(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
@@ -72,6 +77,9 @@ Usage:
   forgedrop-ctl apply --manifest FILE [--profile NAME] [--config FILE] [--auth FILE]
   forgedrop-ctl apps [--profile NAME] [--config FILE] [--auth FILE]
   forgedrop-ctl export --app APP_KEY [--out FILE] [--profile NAME] [--config FILE] [--auth FILE]
+  forgedrop-ctl skill list [--profile NAME] [--config FILE] [--server URL]
+  forgedrop-ctl skill install NAME [--target agents|codex] [--profile NAME] [--config FILE] [--server URL]
+  forgedrop-ctl skill install --url URL [--target agents|codex]
   forgedrop-ctl profile current
   forgedrop-ctl profile list
   forgedrop-ctl profile use NAME
@@ -459,6 +467,21 @@ func loadCLIClient(configPath, authPath, serverURL, token string) (*bootstrap.Cl
 	}
 	client.SetBearerToken(token)
 	return client, token, nil
+}
+
+func loadCLIServerURL(configPath, serverURL string) (string, error) {
+	fileConfig, err := loadCLIConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(serverURL) == "" {
+		serverURL = fileConfig.Server
+	}
+	serverURL = strings.TrimSpace(serverURL)
+	if serverURL == "" {
+		return "", fmt.Errorf("server is required; set it in %s or pass --server", configPath)
+	}
+	return serverURL, nil
 }
 
 type cliConfig struct {
