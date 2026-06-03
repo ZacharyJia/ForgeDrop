@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"forge-drop/internal/buildinfo"
 	"forge-drop/internal/server"
 )
 
@@ -17,10 +19,18 @@ func main() {
 	var addr string
 	var dataDir string
 	var dev bool
+	var showVersion bool
 	flag.StringVar(&addr, "addr", ":8080", "listen address")
 	flag.StringVar(&dataDir, "data-dir", "./data", "data directory (db, artifacts, runtime)")
 	flag.BoolVar(&dev, "dev", false, "dev mode (less caching, more logging)")
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
+
+	if showVersion {
+		info := buildinfo.Current()
+		fmt.Printf("forge-drop %s (%s, %s)\n", info.Version, info.GOOS, info.GOARCH)
+		return
+	}
 
 	logger := log.New(os.Stdout, "forge-drop ", log.LstdFlags|log.LUTC)
 

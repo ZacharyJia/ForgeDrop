@@ -25,6 +25,23 @@ go run ./cmd/forge-drop --addr :8080 --data-dir ./data
 
 > 管理台 UI 由 `web/` 构建产出到 `web/dist`，并在 Go 二进制中 embed（无需额外 UI 服务）。建议使用 `scripts/build.sh --install` 一次性构建前后端。
 
+## 安装与更新
+
+如果你想直接安装 release 二进制，建议从 GitHub Release 下载对应平台的压缩包：
+
+- 完整包：`forge-drop-<os>-<arch>.tar.gz` / `.zip`
+- CLI 单独包：`forgedrop-ctl-<os>-<arch>.tar.gz` / `.zip`
+- 校验文件：`checksums.txt`
+
+解压后，把 `forge-drop` / `forgedrop-ctl` 放到你本机合适的 PATH 目录即可。
+
+`forgedrop-ctl` 安装后可以直接自更新：
+
+```bash
+forgedrop-ctl self-update
+forgedrop-ctl self-update --version v1.2.3
+```
+
 ## AI Skill 与声明式配置
 
 仓库根目录内置了可直接分发的 skill：

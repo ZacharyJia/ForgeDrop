@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"forge-drop/internal/bootstrap"
+	"forge-drop/internal/buildinfo"
 )
 
 const (
@@ -56,11 +57,18 @@ func main() {
 			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
 			os.Exit(1)
 		}
+	case "self-update":
+		if err := runSelfUpdate(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
+			os.Exit(1)
+		}
 	case "profile":
 		if err := runProfile(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
 			os.Exit(1)
 		}
+	case "version", "--version":
+		printVersion(os.Stdout)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -80,6 +88,8 @@ Usage:
   forgedrop-ctl skill list [--profile NAME] [--config FILE] [--server URL]
   forgedrop-ctl skill install NAME [--target agents|codex] [--profile NAME] [--config FILE] [--server URL]
   forgedrop-ctl skill install --url URL [--target agents|codex]
+  forgedrop-ctl self-update [--version TAG] [--repo OWNER/REPO]
+  forgedrop-ctl version
   forgedrop-ctl profile current
   forgedrop-ctl profile list
   forgedrop-ctl profile use NAME
@@ -779,4 +789,9 @@ func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+func printVersion(w io.Writer) {
+	info := buildinfo.Current()
+	fmt.Fprintf(w, "forgedrop-ctl %s (%s, %s)\n", info.Version, info.GOOS, info.GOARCH)
 }

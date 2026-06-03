@@ -2,6 +2,23 @@
 
 本指南描述如何从 0 到 1 配置 forge-drop，并把“CI 上传制品 -> 生成快照 ->（可选）部署 -> 查看状态/日志”的全流程跑通。
 
+## 安装与更新
+
+如果你希望直接安装 GitHub Release 二进制，建议下载对应平台的压缩包：
+
+- 完整包：`forge-drop-<os>-<arch>.tar.gz` / `.zip`
+- CLI 单独包：`forgedrop-ctl-<os>-<arch>.tar.gz` / `.zip`
+- 校验文件：`checksums.txt`
+
+解压后，把 `forge-drop` / `forgedrop-ctl` 放到你本机合适的 PATH 目录即可。
+
+安装完成后，可以通过下面的命令更新 `forgedrop-ctl` 自身：
+
+```bash
+forgedrop-ctl self-update
+forgedrop-ctl self-update --version v1.2.3
+```
+
 ## 用 AI 创建自动部署
 
 如果你希望让 AI 直接为一个新项目或现有项目完成 forge-drop 配置，优先使用仓库根目录的 skill 和声明式 CLI：

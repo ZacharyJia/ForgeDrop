@@ -1,4 +1,4 @@
-name: Build Binaries
+name: Build And Release Binaries
 
 on:
   push:
@@ -50,6 +50,19 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Compute build metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="dev-${GITHUB_SHA::7}"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Install web dependencies
         working-directory: web
         run: npm ci
@@ -63,6 +76,9 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+          BUILD_DATE: ${{ steps.meta.outputs.build_date }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -70,33 +86,88 @@ jobs:
           if [ "$GOOS" = "windows" ]; then
             ext=".exe"
           fi
-          go build -trimpath -ldflags="-s -w" -o "dist/forge-drop${ext}" ./cmd/forge-drop
-          go build -trimpath -ldflags="-s -w" -o "dist/forgedrop-ctl${ext}" ./cmd/forgedrop-ctl
+          ldflags="-s -w -X forge-drop/internal/buildinfo.Version=${VERSION} -X forge-drop/internal/buildinfo.Commit=${COMMIT} -X forge-drop/internal/buildinfo.BuildDate=${BUILD_DATE}"
+          go build -trimpath -ldflags="$ldflags" -o "dist/forge-drop${ext}" ./cmd/forge-drop
+          go build -trimpath -ldflags="$ldflags" -o "dist/forgedrop-ctl${ext}" ./cmd/forgedrop-ctl
 
-      - name: Package archive
+      - name: Package archives
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           set -euo pipefail
-          pkg="forge-drop-${GOOS}-${GOARCH}"
-          mkdir -p "package/${pkg}"
-          cp README.md "package/${pkg}/"
+          archive_ext=".tar.gz"
           if [ "$GOOS" = "windows" ]; then
-            cp dist/forge-drop.exe "package/${pkg}/forge-drop.exe"
-            cp dist/forgedrop-ctl.exe "package/${pkg}/forgedrop-ctl.exe"
-            (cd package && zip -r "../${pkg}.zip" "${pkg}")
-          else
-            cp dist/forge-drop "package/${pkg}/forge-drop"
-            cp dist/forgedrop-ctl "package/${pkg}/forgedrop-ctl"
-            tar -C package -czf "${pkg}.tar.gz" "${pkg}"
+            archive_ext=".zip"
           fi
 
-      - name: Upload artifact
+          full_pkg="forge-drop-${GOOS}-${GOARCH}"
+          ctl_pkg="forgedrop-ctl-${GOOS}-${GOARCH}"
+          mkdir -p "package/${full_pkg}" "package/${ctl_pkg}"
+          cp README.md "package/${full_pkg}/"
+
+          if [ "$GOOS" = "windows" ]; then
+            cp dist/forge-drop.exe "package/${full_pkg}/forge-drop.exe"
+            cp dist/forgedrop-ctl.exe "package/${full_pkg}/forgedrop-ctl.exe"
+            cp dist/forgedrop-ctl.exe "package/${ctl_pkg}/forgedrop-ctl.exe"
+            (cd package && zip -rq "../${full_pkg}${archive_ext}" "${full_pkg}")
+            (cd package && zip -rq "../${ctl_pkg}${archive_ext}" "${ctl_pkg}")
+          else
+            cp dist/forge-drop "package/${full_pkg}/forge-drop"
+            cp dist/forgedrop-ctl "package/${full_pkg}/forgedrop-ctl"
+            cp dist/forgedrop-ctl "package/${ctl_pkg}/forgedrop-ctl"
+            tar -C package -czf "${full_pkg}${archive_ext}" "${full_pkg}"
+            tar -C package -czf "${ctl_pkg}${archive_ext}" "${ctl_pkg}"
+          fi
+
+      - name: Upload packaged artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: forge-drop-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: release-assets-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            forge-drop-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
-            forge-drop-${{ matrix.goos }}-${{ matrix.goarch }}.zip
-          if-no-files-found: ignore
+            forge-drop-${{ matrix.goos }}-${{ matrix.goarch }}.*
+            forgedrop-ctl-${{ matrix.goos }}-${{ matrix.goarch }}.*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: release-artifacts
+          pattern: release-assets-*
+          merge-multiple: true
+
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp release-artifacts/* release-assets/
+          (
+            cd release-assets
+            sha256sum \
+              forge-drop-* \
+              forgedrop-ctl-* \
+              > checksums.txt
+          )
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber
+          else
+            gh release create "$tag" release-assets/* --title "$tag" --generate-notes
+          fi
