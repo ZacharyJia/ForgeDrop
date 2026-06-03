@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"path/filepath"
 	"testing"
 )
@@ -149,6 +150,28 @@ func TestListKnownProfilesIncludesActiveAndNamedProfiles(t *testing.T) {
 	for i := range expected {
 		if names[i] != expected[i] {
 			t.Fatalf("unexpected profiles: got %v want %v", names, expected)
+		}
+	}
+}
+
+func TestReorderInterspersedFlagsMovesPositionalsAfterFlags(t *testing.T) {
+	fs := flag.NewFlagSet("set", flag.ContinueOnError)
+	serverURL := ""
+	token := ""
+	activate := false
+	fs.StringVar(&serverURL, "server", serverURL, "forge-drop base URL")
+	fs.StringVar(&token, "token", token, "admin token")
+	fs.BoolVar(&activate, "activate", activate, "set this profile as active after updating files")
+
+	args := []string{"ssr", "--server", "http://example.com", "--token", "abc", "--activate"}
+	got := reorderInterspersedFlags(fs, args)
+	want := []string{"--server", "http://example.com", "--token", "abc", "--activate", "ssr"}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected reordered args: got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected reordered args: got %v want %v", got, want)
 		}
 	}
 }

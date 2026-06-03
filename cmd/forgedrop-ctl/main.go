@@ -372,6 +372,7 @@ func runProfileList(args []string) error {
 func runProfileUse(args []string) error {
 	fs := flag.NewFlagSet("use", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	args = reorderInterspersedFlags(fs, args)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -408,6 +409,7 @@ func runProfileSet(args []string) error {
 	fs.StringVar(&token, "token", token, "admin token")
 	fs.BoolVar(&activate, "activate", activate, "set this profile as active after updating files")
 
+	args = reorderInterspersedFlags(fs, args)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -448,6 +450,57 @@ func bindProfileFlags(fs *flag.FlagSet, profileName, configPath, authPath *strin
 	fs.StringVar(profileName, "profile", "", "profile name (default: --profile, $FORGEDROP_PROFILE, active profile, or default)")
 	fs.StringVar(configPath, "config", "", "path to config.json (overrides profile path)")
 	fs.StringVar(authPath, "auth", "", "path to auth.json (overrides profile path)")
+}
+
+type boolFlag interface {
+	IsBoolFlag() bool
+}
+
+func reorderInterspersedFlags(fs *flag.FlagSet, args []string) []string {
+	if len(args) < 2 {
+		return args
+	}
+
+	flagArgs := make([]string, 0, len(args))
+	positionalArgs := make([]string, 0, len(args))
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positionalArgs = append(positionalArgs, args[i+1:]...)
+			break
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			positionalArgs = append(positionalArgs, arg)
+			continue
+		}
+
+		flagArgs = append(flagArgs, arg)
+		if flagExpectsValue(fs, arg) && !strings.Contains(arg, "=") && i+1 < len(args) {
+			i++
+			flagArgs = append(flagArgs, args[i])
+		}
+	}
+
+	return append(flagArgs, positionalArgs...)
+}
+
+func flagExpectsValue(fs *flag.FlagSet, arg string) bool {
+	name := strings.TrimLeft(arg, "-")
+	if idx := strings.IndexByte(name, '='); idx >= 0 {
+		name = name[:idx]
+	}
+	if name == "" {
+		return false
+	}
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	if bf, ok := f.Value.(boolFlag); ok && bf.IsBoolFlag() {
+		return false
+	}
+	return true
 }
 
 func loadCLIClient(configPath, authPath, serverURL, token string) (*bootstrap.Client, string, error) {

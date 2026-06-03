@@ -122,6 +122,7 @@ func runSkillInstall(args []string) error {
 	fs.BoolVar(&force, "force", force, "overwrite existing local files without confirmation")
 	fs.DurationVar(&timeout, "timeout", timeout, "request timeout")
 
+	args = reorderInterspersedFlags(fs, args)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
