@@ -682,8 +682,32 @@ func (s *Store) UpdateAppName(ctx context.Context, id, name string) (*App, error
 }
 
 func (s *Store) DeleteApp(ctx context.Context, id string) error {
-	_, err := s.sql.ExecContext(ctx, `DELETE FROM apps WHERE id=?`, id)
-	return err
+	tx, err := s.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := deleteSnapshotSlotsByAppTx(ctx, tx, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM artifacts WHERE app_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM slots
+		WHERE service_id IN (SELECT id FROM services WHERE app_id=?)`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM services WHERE app_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM envs WHERE app_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM apps WHERE id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) CreateService(ctx context.Context, appID, serviceKey, name, image, command string, containerPort int, runUser string, env map[string]string, prodHost string) (*Service, error) {
@@ -822,7 +846,43 @@ func (s *Store) ListServicesByApp(ctx context.Context, appID string) ([]Service,
 }
 
 func (s *Store) DeleteService(ctx context.Context, id string) error {
-	_, err := s.sql.ExecContext(ctx, `DELETE FROM services WHERE id=?`, id)
+	tx, err := s.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := deleteSnapshotSlotsByServiceTx(ctx, tx, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM artifacts WHERE service_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM slots WHERE service_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM services WHERE id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Delete dependent snapshot entries first so app/service removal does not rely
+// on SQLite's cascade ordering when artifacts are still referenced by snapshots.
+func deleteSnapshotSlotsByAppTx(ctx context.Context, tx *sql.Tx, appID string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM snapshot_slots
+		WHERE slot_id IN (
+			SELECT sl.id
+			FROM slots sl
+			JOIN services svc ON svc.id = sl.service_id
+			WHERE svc.app_id = ?
+		)`, appID)
+	return err
+}
+
+func deleteSnapshotSlotsByServiceTx(ctx context.Context, tx *sql.Tx, serviceID string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM snapshot_slots
+		WHERE slot_id IN (SELECT id FROM slots WHERE service_id=?)`, serviceID)
 	return err
 }
 
