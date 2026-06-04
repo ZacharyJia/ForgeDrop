@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "base_domain": "example.com",
+    "docker_network": "traefik",
+    "named_host_template": "{{.AppKey}}-{{.ServiceKey}}-{{.EnvName}}.{{.BaseDomain}}",
+    "preview_host_template": "{{.AppKey}}-pr{{.PRNumber}}-{{.ServiceKey}}.{{.BaseDomain}}"
+  },
+  "repos": [
+    {
+      "full_name": "acme/demo-service"
+    }
+  ],
+  "app": {
+    "app_key": "demo-service",
+    "name": "Demo Service",
+    "envs": [
+      { "name": "prod" },
+      { "name": "staging" },
+      { "name": "qa" }
+    ],
+    "services": [
+      {
+        "service_key": "api",
+        "name": "API",
+        "image": "debian:trixie-slim",
+        "command": "sh -lc \"chmod +x /app/app.bin && /app/app.bin\"",
+        "container_port": 8080,
+        "deploy_strategy": "recreate",
+        "enabled": true,
+        "compose_template": "services:\n  app:\n    image: debian:trixie-slim\n    command: sh -lc \"chmod +x /app/app.bin && /app/app.bin\"\n    volumes:\n      {{- range $slotKey, $hostPath := .Artifacts }}\n      - {{$hostPath}}:{{index $.SlotPaths $slotKey}}\n      {{- end }}\n    labels:\n      - traefik.enable=true\n      - traefik.http.routers.{{.RouterName}}.rule=Host(`{{.Host}}`)\n      - traefik.http.routers.{{.RouterName}}.entrypoints={{.EntryPoints}}\n      - traefik.http.routers.{{.RouterName}}.tls=true\n      - traefik.http.services.{{.TraefikService}}.loadbalancer.server.port={{.Port}}\n    networks:\n      - {{.Network}}\n    restart: unless-stopped\n\nnetworks:\n  {{.Network}}:\n    external: true\n",
+        "slots": [
+          {
+            "slot_key": "main",
+            "name": "App Binary",
+            "container_path": "/app/app.bin"
+          }
+        ]
+      }
+    ]
+  }
+}

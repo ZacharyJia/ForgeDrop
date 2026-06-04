@@ -1,0 +1,7 @@
+interface:
+  display_name: "Forge Drop Manual Deploy"
+  short_description: "Create and deploy forge-drop apps without CI"
+  default_prompt: "Use $forgedrop-deploy to create or update a forge-drop app for manual deployment: apply the app config, create named envs, and upload a locally built artifact without CI."
+
+policy:
+  allow_implicit_invocation: true

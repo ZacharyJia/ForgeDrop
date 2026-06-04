@@ -24,6 +24,7 @@ forgedrop-ctl self-update --version v1.2.3
 如果你希望让 AI 直接为一个新项目或现有项目完成 forge-drop 配置，优先使用仓库根目录的 skill 和声明式 CLI：
 
 - skill：`skills/forge-drop-autodeploy/`
+- skill：`skills/forgedrop-deploy/`
 - CLI：`./bin/forgedrop-ctl apply --manifest <manifest.json>`
 - CLI：`./bin/forgedrop-ctl apps`
 - CLI：`./bin/forgedrop-ctl export --app <app_key> [--out manifest.json]`
@@ -108,6 +109,7 @@ profile 路径规则：
 ```bash
 ./bin/forgedrop-ctl skill list --profile prod
 ./bin/forgedrop-ctl skill install forge-drop-autodeploy
+./bin/forgedrop-ctl skill install forgedrop-deploy
 ./bin/forgedrop-ctl skill install forge-drop-autodeploy --target agents
 ./bin/forgedrop-ctl skill install --url https://deploy.example.com/agents/skill/forge-drop-autodeploy --target codex
 ```
@@ -130,6 +132,7 @@ profile 路径规则：
 
 - `GET /agents/skill`
 - `GET /agents/skill/forge-drop-autodeploy`
+- `GET /agents/skill/forgedrop-deploy`
 
 ## 核心概念
 

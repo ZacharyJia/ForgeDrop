@@ -47,8 +47,12 @@ forgedrop-ctl self-update --version v1.2.3
 仓库根目录内置了可直接分发的 skill：
 
 - `skills/forge-drop-autodeploy/`
+- `skills/forgedrop-deploy/`
 
-这个 skill 配合内置 CLI `forgedrop-ctl` 使用，目标是让 AI 可以直接为新项目或存量项目生成自动部署配置，而不是手工点很多管理台表单。
+这些 skill 配合内置 CLI `forgedrop-ctl` 使用：
+
+- `forge-drop-autodeploy`：面向 CI 自动部署、PR preview、PR comment
+- `forgedrop-deploy`：面向创建 app 后从本地手动上传部署与后续手动更新
 
 典型流程：
 
@@ -122,6 +126,7 @@ profile 文件布局：
 ```bash
 ./bin/forgedrop-ctl skill list --profile prod
 ./bin/forgedrop-ctl skill install forge-drop-autodeploy
+./bin/forgedrop-ctl skill install forgedrop-deploy
 ./bin/forgedrop-ctl skill install forge-drop-autodeploy --target codex
 ```
 
@@ -135,9 +140,11 @@ profile 文件布局：
 相关文件：
 
 - skill 入口：`skills/forge-drop-autodeploy/SKILL.md`
+- skill 入口：`skills/forgedrop-deploy/SKILL.md`
 - manifest 示例：`skills/forge-drop-autodeploy/assets/deploy-manifest.example.json`
+- manifest 示例：`skills/forgedrop-deploy/assets/deploy-manifest.example.json`
 - CI 示例：`skills/forge-drop-autodeploy/assets/forgejo-actions-autodeploy.yml`
-- 公开读取：`GET /agents/skill` 或 `GET /agents/skill/forge-drop-autodeploy`
+- 公开读取：`GET /agents/skill`、`GET /agents/skill/forge-drop-autodeploy` 或 `GET /agents/skill/forgedrop-deploy`
 
 ## 与 Traefik 配合（推荐）
 
