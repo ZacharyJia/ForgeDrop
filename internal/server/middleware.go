@@ -139,7 +139,7 @@ func (s *Server) requireArtifactTokenGin() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if t.RevokedAt != nil || t.Scope != "artifact" {
+		if t.RevokedAt != nil || (t.Scope != "artifact" && t.Scope != "admin") {
 			writeError(c, http.StatusUnauthorized, "invalid token")
 			c.Abort()
 			return

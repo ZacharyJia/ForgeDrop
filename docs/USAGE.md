@@ -74,6 +74,27 @@ forgedrop-ctl self-update --version v1.2.3
 ./bin/forgedrop-ctl profile use staging
 ./bin/forgedrop-ctl apps
 ./bin/forgedrop-ctl export --app demo --profile prod
+
+# 本地手动上传已构建好的部署产物
+./bin/forgedrop-ctl artifacts upload \
+  --profile prod \
+  --app demo \
+  --env staging \
+  --service web \
+  --slot main \
+  --repo acme/demo \
+  --file ./dist/app.bin
+
+# 命名环境不存在时自动创建后再上传
+./bin/forgedrop-ctl artifacts upload \
+  --profile prod \
+  --app demo \
+  --env qa \
+  --service web \
+  --slot main \
+  --repo acme/demo \
+  --file ./dist/app.bin \
+  --create-env
 ```
 
 profile 路径规则：
@@ -165,7 +186,7 @@ profile 路径规则：
 
 ## CI 上传制品
 
-接口：`POST /api/v1/artifacts/upload`（multipart/form-data），需要 `Authorization: Bearer <token>`。
+接口：`POST /api/v1/artifacts/upload`（multipart/form-data），需要 `Authorization: Bearer <token>`，可使用 `artifact` token 或 `admin` token。
 
 字段：
 
@@ -197,6 +218,19 @@ curl -X POST \
   -F "deploy=0" \
   -F "artifact=@build/app.jar" \
   http://your-server:8080/api/v1/artifacts/upload
+```
+
+对应 CLI：
+
+```bash
+./bin/forgedrop-ctl artifacts upload \
+  --profile prod \
+  --app my-app \
+  --env prod \
+  --service api \
+  --slot main \
+  --repo owner/repo \
+  --file ./build/app.jar
 ```
 
 ## 批量上传（一次生成同一个快照）
@@ -238,6 +272,21 @@ curl -X POST \
 3. 展开目标服务，选择要更新的槽位文件
 4. 关闭“上传后自动部署”可进入“待部署”状态
 5. 点击“部署当前环境”或“部署服务”触发更新
+
+如果当前没有 CI，也可以直接在本地执行：
+
+```bash
+./bin/forgedrop-ctl artifacts upload \
+  --profile prod \
+  --app my-app \
+  --env qa \
+  --service api \
+  --slot main \
+  --repo owner/repo \
+  --file ./build/app.jar \
+  --create-env \
+  --deploy=false
+```
 
 ## 状态与日志
 

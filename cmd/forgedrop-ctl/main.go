@@ -42,6 +42,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
 			os.Exit(1)
 		}
+	case "artifacts":
+		if err := runArtifacts(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
+			os.Exit(1)
+		}
 	case "apps":
 		if err := runApps(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
@@ -83,6 +88,7 @@ func usage() {
 
 Usage:
   forgedrop-ctl apply --manifest FILE [--profile NAME] [--config FILE] [--auth FILE]
+  forgedrop-ctl artifacts upload --app APP_KEY --env ENV --service SERVICE --slot SLOT --repo OWNER/REPO --file PATH [--create-env]
   forgedrop-ctl apps [--profile NAME] [--config FILE] [--auth FILE]
   forgedrop-ctl export --app APP_KEY [--out FILE] [--profile NAME] [--config FILE] [--auth FILE]
   forgedrop-ctl skill list [--profile NAME] [--config FILE] [--server URL]

@@ -88,6 +88,27 @@ forgedrop-ctl self-update --version v1.2.3
 ./bin/forgedrop-ctl apply --manifest ./deploy/staging.json
 
 ./bin/forgedrop-ctl apps --profile prod
+
+# 本地手动上传构建产物（无 CI 时可直接部署）
+./bin/forgedrop-ctl artifacts upload \
+  --profile prod \
+  --app demo \
+  --env staging \
+  --service web \
+  --slot main \
+  --repo acme/demo \
+  --file ./dist/app.bin
+
+# 若目标命名环境还不存在，可先自动创建再上传
+./bin/forgedrop-ctl artifacts upload \
+  --profile prod \
+  --app demo \
+  --env qa \
+  --service web \
+  --slot main \
+  --repo acme/demo \
+  --file ./dist/app.bin \
+  --create-env
 ```
 
 profile 文件布局：
@@ -135,7 +156,7 @@ profile 文件布局：
 
 ## CI 上传制品（Forgejo Actions）
 
-接口：`POST /api/v1/artifacts/upload`（multipart/form-data），需要 `Authorization: Bearer <token>`。
+接口：`POST /api/v1/artifacts/upload`（multipart/form-data），需要 `Authorization: Bearer <token>`，可使用 `artifact` token 或 `admin` token。
 
 典型字段：
 - `app` / `service` / `slot`：在管理台配置
@@ -172,6 +193,19 @@ curl -X POST \
   -F "sha=$GIT_SHA" \
   -F "artifact=@build/app.jar" \
   http://your-server:8080/api/v1/artifacts/upload
+```
+
+也可以直接用 CLI 在本地上传已构建好的制品：
+
+```bash
+./bin/forgedrop-ctl artifacts upload \
+  --profile prod \
+  --app my-app \
+  --env prod \
+  --service api \
+  --slot main \
+  --repo owner/repo \
+  --file ./build/app.jar
 ```
 
 ## Forgejo Webhook（PR 关闭清理 Preview）
