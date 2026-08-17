@@ -834,7 +834,12 @@ func (s *Server) handleAdminAppEnvs(c *gin.Context, appID string, rest []string)
 				writeError(c, http.StatusInternalServerError, "db error")
 				return
 			}
-			c.JSON(http.StatusOK, envs)
+			out := make([]map[string]any, 0, len(envs))
+			for _, e := range envs {
+				env := e
+				out = append(out, envJSON(&env))
+			}
+			c.JSON(http.StatusOK, out)
 			return
 		case "POST":
 			var req struct {
