@@ -219,6 +219,29 @@ func (d *Deployer) DeployEnv(ctx context.Context, envID, strategy string) error 
 	return nil
 }
 
+// StopEnv stops (but does not remove) the Docker Compose containers of every
+// enabled service in the environment. Deploying the env again brings them back.
+func (d *Deployer) StopEnv(ctx context.Context, envID string) error {
+	env, err := d.store.GetEnvByID(ctx, envID)
+	if err != nil {
+		return err
+	}
+	services, err := d.store.ListServicesByApp(ctx, env.AppID)
+	if err != nil {
+		return err
+	}
+	for _, svc := range services {
+		if !svc.Enabled {
+			continue
+		}
+		if err := d.composeManager.Stop(ctx, envID, svc.ID, svc.ServiceKey); err != nil {
+			return fmt.Errorf("service %s: %w", svc.ServiceKey, err)
+		}
+	}
+	d.logf("Stopped env %s (id=%s)", env.Name, envID)
+	return nil
+}
+
 func (d *Deployer) CleanupEnv(ctx context.Context, envID string) error {
 	// Get all services for this env to clean up compose projects
 	env, err := d.store.GetEnvByID(ctx, envID)

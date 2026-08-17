@@ -57,6 +57,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
 			os.Exit(1)
 		}
+	case "envs":
+		if err := runEnvs(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
+			os.Exit(1)
+		}
 	case "skill":
 		if err := runSkill(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "forgedrop-ctl: %v\n", err)
@@ -91,6 +96,8 @@ Usage:
   forgedrop-ctl artifacts upload --app APP_KEY --env ENV --service SERVICE --slot SLOT --repo OWNER/REPO --file PATH [--create-env]
   forgedrop-ctl apps [--profile NAME] [--config FILE] [--auth FILE]
   forgedrop-ctl export --app APP_KEY [--out FILE] [--profile NAME] [--config FILE] [--auth FILE]
+  forgedrop-ctl envs stop --app APP_KEY (--env NAME | --repo OWNER/REPO [--pr N | --change-set CS]) [--profile NAME] [--config FILE] [--auth FILE]
+  forgedrop-ctl envs delete --app APP_KEY (--env NAME | --repo OWNER/REPO [--pr N | --change-set CS]) [--profile NAME] [--config FILE] [--auth FILE]
   forgedrop-ctl skill list [--profile NAME] [--config FILE] [--server URL]
   forgedrop-ctl skill install NAME [--target agents|codex] [--profile NAME] [--config FILE] [--server URL]
   forgedrop-ctl skill install --url URL [--target agents|codex]

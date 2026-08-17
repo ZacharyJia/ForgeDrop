@@ -1244,6 +1244,18 @@ func (s *Server) handleAdminEnvs(c *gin.Context, rest string) {
 		c.JSON(http.StatusOK, map[string]any{"ok": true})
 		return
 	}
+	if len(parts) >= 2 && parts[1] == "stop" && r.Method == "POST" {
+		if _, err := s.store.GetEnvByID(r.Context(), envID); err != nil {
+			writeError(c, http.StatusNotFound, "not found")
+			return
+		}
+		if err := s.deployer.StopEnv(r.Context(), envID); err != nil {
+			writeError(c, http.StatusInternalServerError, "stop failed: "+err.Error())
+			return
+		}
+		c.JSON(http.StatusOK, map[string]any{"ok": true})
+		return
+	}
 	if len(parts) >= 4 && parts[1] == "services" && parts[3] == "slot-artifacts" && r.Method == "GET" {
 		serviceID := parts[2]
 		env, err := s.store.GetEnvByID(r.Context(), envID)

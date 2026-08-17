@@ -37,9 +37,13 @@ type App struct {
 }
 
 type Env struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Kind         string  `json:"kind"`
+	RepoID       *string `json:"repo_id"`
+	PRNumber     *int    `json:"pr_number"`
+	ChangeSet    *string `json:"change_set"`
+	RepoFullName *string `json:"repo_full_name"`
 }
 
 type Service struct {
@@ -286,6 +290,14 @@ func (c *Client) CreateEnv(ctx context.Context, appID, name string) (*Env, error
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *Client) StopEnv(ctx context.Context, envID string) error {
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/admin/envs/"+envID+"/stop", nil, nil)
+}
+
+func (c *Client) DeleteEnv(ctx context.Context, envID string) error {
+	return c.doJSON(ctx, http.MethodDelete, "/api/v1/admin/envs/"+envID, nil, nil)
 }
 
 func (c *Client) ListServices(ctx context.Context, appID string) ([]Service, error) {
