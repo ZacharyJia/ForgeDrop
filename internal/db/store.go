@@ -1189,6 +1189,29 @@ func (s *Store) UpsertPreviewEnv(ctx context.Context, appID string, repo Repo, p
 		return nil, err
 	}
 
+	// A soft-deleted env row still occupies the table-level
+	// UNIQUE(app_id, kind, name, repo_id, pr_number) constraint, so inserting a
+	// fresh row for the same PR would fail. Revive the soft-deleted row instead.
+	var deletedID string
+	if changeSet != "" {
+		err = s.sql.QueryRowContext(ctx, `SELECT id FROM envs
+			WHERE app_id=? AND kind='preview' AND repo_id=? AND change_set=? AND deleted_at IS NOT NULL`,
+			appID, repo.ID, changeSet).Scan(&deletedID)
+	} else {
+		err = s.sql.QueryRowContext(ctx, `SELECT id FROM envs
+			WHERE app_id=? AND kind='preview' AND repo_id=? AND pr_number=? AND (change_set IS NULL OR change_set='') AND deleted_at IS NOT NULL`,
+			appID, repo.ID, *prNumber).Scan(&deletedID)
+	}
+	if err == nil {
+		if _, err := s.sql.ExecContext(ctx, `UPDATE envs SET deleted_at=NULL WHERE id=?`, deletedID); err != nil {
+			return nil, err
+		}
+		return s.GetEnvByID(ctx, deletedID)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
 	// Preview template: a named env called "preview". New PR preview envs inherit
 	// its current_snapshot_id so that config/artifacts can be shared by default.
 	var templateSnapshot sql.NullString
