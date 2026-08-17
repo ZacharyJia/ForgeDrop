@@ -128,6 +128,18 @@ profile 路径规则：
 `forgedrop-ctl export` 只导出声明式配置：settings、repos、app、named envs、services、slots。
 它不会导出运行时 ID、明文 token，也不会把 PR/change-set 生成的 preview 子环境写进 manifest。
 
+`forgedrop-ctl envs` 提供环境级别的运维操作：
+
+```bash
+# 停用环境：停止该环境内所有服务的 Docker Compose 容器（不删除，重新 deploy 即可恢复）
+./bin/forgedrop-ctl envs stop --app demo --env staging
+./bin/forgedrop-ctl envs stop --app demo --repo acme/demo --pr 123
+
+# 删除环境：只允许删除 PR/change-set 生成的 preview 环境，命名环境（prod、preview 模板等）会被拒绝
+./bin/forgedrop-ctl envs delete --app demo --repo acme/demo --pr 123
+./bin/forgedrop-ctl envs delete --app demo --repo acme/demo --change-set feature-x
+```
+
 如果 Agent 需要直接从 forge-drop 读取内置 skill，可访问公开端点：
 
 - `GET /agents/skill`
