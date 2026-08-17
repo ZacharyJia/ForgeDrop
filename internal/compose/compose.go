@@ -143,6 +143,28 @@ func (m *ComposeManager) Down(ctx context.Context, envID, serviceID, serviceKey 
 	return nil
 }
 
+// Stop runs docker compose stop (containers are kept, just stopped)
+func (m *ComposeManager) Stop(ctx context.Context, envID, serviceID, serviceKey string) error {
+	composeFile := m.GetComposeFile(envID, serviceID)
+	projectName := m.GetProjectName(envID, serviceKey)
+
+	// Check if compose file exists
+	if _, err := os.Stat(composeFile); os.IsNotExist(err) {
+		return nil // Not deployed yet
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", "compose",
+		"-f", composeFile,
+		"-p", projectName,
+		"stop")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker compose stop failed: %w\nOutput: %s", err, string(output))
+	}
+	return nil
+}
+
 // Restart runs docker compose restart
 func (m *ComposeManager) Restart(ctx context.Context, envID, serviceID, serviceKey string) error {
 	composeFile := m.GetComposeFile(envID, serviceID)

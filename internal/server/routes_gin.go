@@ -101,6 +101,7 @@ func (s *Server) routes() http.Handler {
 		s.handleAdminEnvs(c, "/"+c.Param("envID")+"/services/"+c.Param("serviceID")+"/slot-artifacts")
 	})
 	admin.POST("/envs/:envID/deploy", func(c *gin.Context) { s.handleAdminEnvs(c, "/"+c.Param("envID")+"/deploy") })
+	admin.POST("/envs/:envID/stop", func(c *gin.Context) { s.handleAdminEnvs(c, "/"+c.Param("envID")+"/stop") })
 	admin.POST("/envs/:envID/rollback", func(c *gin.Context) { s.handleAdminEnvs(c, "/"+c.Param("envID")+"/rollback") })
 	admin.POST("/envs/:envID/sync-preview-snapshot", func(c *gin.Context) {
 		s.handleAdminEnvs(c, "/"+c.Param("envID")+"/sync-preview-snapshot")
